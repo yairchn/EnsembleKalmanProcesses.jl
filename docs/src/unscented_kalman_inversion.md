@@ -1,33 +1,48 @@
 # Unscented Kalman Inversion
 
-## Algorithm
 One of the ensemble Kalman processes implemented in `EnsembleKalmanProcesses.jl` is the unscented Kalman inversion ([Huang et al, 2021](https://arxiv.org/abs/2102.01580)). The unscented Kalman inversion (UKI) is a derivative-free ensemble optimization method that seeks to find the optimal parameters $\theta \in \mathbb{R}^p$ in the inverse problem
 ```math
  y = \mathcal{G}(\theta) + \eta
 ```
-where $\mathcal{G}$ denotes the forward map, $y \in \mathbb{R}^d$ is the vector of observations and $\eta \sim \mathcal{N}(0, \Gamma_y)$ is additive Gaussian observational noise. Note that $p$ is the size of the parameter vector $\theta$ and $d$ is taken to be the size of the observation vector $y$. 
-The UKI updates both the mean $m_n$ and covariance $C_n$ estimations of the parameter vector $\theta$ as following
+where $\mathcal{G}$ denotes the forward map, $y \in \mathbb{R}^d$ is the vector of observations and $\eta \sim \mathcal{N}(0, \Gamma_y)$ is additive Gaussian observational noise. Note that $p$ is the size of the parameter vector $\theta$ and $d$ is taken to be the size of the observation vector $y$. It is favorable for the following reasons
+
+* Uncertainty quantification: gives both mean and covariance approximation of the posterior distribution, the 3-sigma confidence interval covers the truth parameters for perfect models;
+* Efficiency: requires only $2p + 1$ particles in general
+* Robust: no empirical variance inflation or early stopping needed and no ensemble collapse
+
+## Algorithm
+ 
+The UKI applies unscented Kalman filter for the following stochastic dynamical system 
+
+```math
+\begin{aligned}
+  &\textrm{evolution:}    &&\theta_{n+1} = r + \alpha (\theta_{n}  - r) +  \omega_{n+1}, &&\omega_{n+1} \sim \mathcal{N}(0,\Sigma_{\omega}),\\
+  &\textrm{observation:}  &&y_{n+1} = \mathcal{G}(\theta_{n+1}) + \nu_{n+1}, &&\nu_{n+1} \sim \mathcal{N}(0,\Sigma_{\nu}).
+\end{aligned}
+```
+
+Therefore, the UKI updates both the mean $m_n$ and covariance $C_n$ estimations of the parameter vector $\theta$ as following
 
 * Prediction step :
 
 ```math
-    $$\begin{align*}
+\begin{aligned}
     \hat{m}_{n+1} = & r+\alpha(m_n-r)\\
     \hat{C}_{n+1} = & \alpha^2 C_{n} + \Sigma_{\omega}
-    \end{align*}$$
+\end{aligned}
 ```  
 * Generate sigma points :
 ```math    
-    $$\begin{align*}
+\begin{aligned}
     &\hat{\theta}_{n+1}^0 = \hat{m}_{n+1} \\
     &\hat{\theta}_{n+1}^j = \hat{m}_{n+1} + c_j [\sqrt{\hat{C}_{n+1}}]_j \quad (1\leq j\leq N_\theta)\\ 
     &\hat{\theta}_{n+1}^{j+N_\theta} = \hat{m}_{n+1} - c_j [\sqrt{\hat{C}_{n+1}}]_j\quad (1\leq j\leq N_\theta)
-    \end{align*}$$
+\end{aligned}
 ```     
 *  Analysis step :
     
 ```math
-   \begin{align*}
+   \begin{aligned}
         &\hat{y}^j_{n+1} = \mathcal{G}(\hat{\theta}^j_{n+1}) \qquad \hat{y}_{n+1} = \hat{y}^0_{n+1}\\
          &\hat{C}^{\theta p}_{n+1} = \sum_{j=1}^{2N_\theta}W_j^{c}
         (\hat{\theta}^j_{n+1} - \hat{m}_{n+1} )(\hat{y}^j_{n+1} - \hat{y}_{n+1})^T \\
@@ -35,15 +50,15 @@ The UKI updates both the mean $m_n$ and covariance $C_n$ estimations of the para
         (\hat{y}^j_{n+1} - \hat{y}_{n+1} )(\hat{y}^j_{n+1} - \hat{y}_{n+1})^T + \Sigma_{\nu}\\
         &m_{n+1} = \hat{m}_{n+1} + \hat{C}^{\theta p}_{n+1}(\hat{C}^{pp}_{n+1})^{-1}(y - \hat{y}_{n+1})\\
         &C_{n+1} = \hat{C}_{n+1} - \hat{C}^{\theta p}_{n+1}(\hat{C}^{pp}_{n+1})^{-1}{\hat{C}^{\theta p}_{n+1}}{}^{T}\\
-    \end{align*}
+    \end{aligned}
 ```
 
 The unscented transformation parameters are
 ```math
-    \begin{align*}
+    \begin{aligned}
     &c_j = \sqrt{N_\theta +\lambda} \qquad W_j^{c} = \frac{1}{2(N_\theta+\lambda)}~(j=1,\cdots,2N_{\theta}).\\
     &\lambda = a^2 (N_\theta + \kappa) - N_\theta \quad a=\min\{\sqrt{\frac{4}{N_\theta + \kappa}},  1\}\quad  \kappa = 0\\
-    \end{align*}
+    \end{aligned}
 ```
 And $[\sqrt{C}]_j$ is the $j$th column of the Cholesky factor of $C$. 
     
@@ -53,28 +68,26 @@ For typical applications, a near-optimal solution $\theta$ can be found after as
 
 
 ## Free parameters
-The free parameters in the unscented Kalman inversion are
-
-$$\alpha, r, \Sigma_{\nu}, \Sigma_{\omega}$$
+The free parameters in the unscented Kalman inversion are $\alpha, r, \Sigma_{\nu}, \Sigma_{\omega}$
 
 They are chosen based on theorems developed in [Huang et al, 2021](https://arxiv.org/abs/2102.01580)
 
-* $r$ is generally set to be the prior mean
+* the vector $r$ is generally set to be the prior mean
 
-* $\alpha \in (0,1]$ is a regularization parameter, which is used to overcome ill-posedness and overfitting. A practical guide is 
+* the scalar $\alpha \in (0,1]$ is a regularization parameter, which is used to overcome ill-posedness and overfitting. A practical guide is 
 
     * When the observation noise is negligible, and there are more observations than parameters (identifiable inverse problem) $\alpha = 1$ (no regularization)
     * Otherwise $\alpha < 1$. The smaller $\alpha$ is, the closer UKI will converge to the prior mean.
     
-* $\Sigma_{\nu}$ is the artificial observation errror covariance. We choose $\Sigma_{\nu} = 2 \Sigma_{\eta}$, which makes the inverse problem consistent. 
+* the matrix $\Sigma_{\nu}$ is the artificial observation errror covariance. We choose $\Sigma_{\nu} = 2 \Sigma_{\eta}$, which makes the inverse problem consistent. 
 
-* $\Sigma_{\omega}$ is the artificial evolution errror covariance. We choose $\Sigma_{\omega} = (2 - \alpha^2)\Lambda$
+* the matrix $\Sigma_{\omega}$ is the artificial evolution errror covariance. We choose $\Sigma_{\omega} = (2 - \alpha^2)\Lambda$
 
-* When there are more observations than parameters (identifiable inverse problem), $\Lambda = C_n$, which is updated as the estimated covariance $C_n$ in the $n$-thevery iteration . This guarantees the converged covariance matrix is a good approximation to the posterior covariance matrix with an uninformative prior.
+* when there are more observations than parameters (identifiable inverse problem), $\Lambda = C_n$, which is updated as the estimated covariance $C_n$ in the $n$-thevery iteration . This guarantees the converged covariance matrix is a good approximation to the posterior covariance matrix with an uninformative prior.
     
-* Otherwise $\Lambda = C_0$, this allows that the converged covariance matrix is a weighted average between the posterior covariance matrix with an uninformative prior and $C_0$.
+* otherwise $\Lambda = C_0$, this allows that the converged covariance matrix is a weighted average between the posterior covariance matrix with an uninformative prior and $C_0$.
 
-Therefore, the user only need to change the $\alpha$, and the freqency to update the $\Lambda$.
+In a nutshell, users only need to change the $\alpha$ (`α_reg`), and the freqency to update the $\Lambda$ (`update_freq`).
 
 
 ## Implementation
@@ -114,7 +127,8 @@ Once the unscented Kalman inversion object `UKIobj` has been initialized, any nu
 
 A call to the inversion algorithm can be performed with the `update_ensemble!` function. This function takes as arguments the `UKIobj` and the evaluations of the forward map at each element of the current ensemble. The `update_ensemble!` function then stores the new updated ensemble and the inputted forward map evaluations in `UKIobj`.
 
-A typical use of the `update_ensemble!` function given the ensemble Kalman inversion object `UKIobj` and the forward map `G` is
+The forward map $\mathcal{G}$ maps the space of unconstrained parameters $\theta$ to the outputs $y\in \mathbb{R}^d$. In practice, the user may not have access to such a map directly. And the map is a composition of several functions. The `update_ensemble!` uses only the evalutaions `g_ens` but not the forward map  
+
 ```julia
 N_iter = 20 # Number of steps of the algorithm
 
@@ -131,3 +145,5 @@ for i in 1:N_iter
     EnsembleKalmanProcessModule.update_ensemble!(ukiobj, g_ens) 
 end
 ```
+
+There are two examples [Lorenz96](../../examples/Lorenz/Lorenz_example_ukp.jl) and [Cloudy](../../examples/Cloudy/Cloudy_example_ukp.jl)
