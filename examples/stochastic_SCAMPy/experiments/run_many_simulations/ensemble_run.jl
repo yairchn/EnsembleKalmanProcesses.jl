@@ -30,8 +30,8 @@ prior_dist = [Parameterized(Normal(0.0, 1.0))
 priors = ParameterDistribution(prior_dist, constraints, param_names)
 
 # Define observation window (s)
-ti = [14400.0]
-tf = [21600.0]
+ti = [4.0] * 3600
+tf = [6.0] * 3600
 # Define variables considered in the loss function
 y_names = Array{String, 1}[]
 push!(y_names, ["thetal_mean", "ql_mean", "qt_mean", "total_flux_h", "total_flux_qt"])
@@ -42,6 +42,7 @@ perform_PCA = true # Performs PCA on data
 # Define name of PyCLES simulation to learn from
 sim_names = ["Bomex"]
 sim_suffix = [".may18"]
+scm_sim_names = ["StochasticBomex"]  # corresponding scm dir
 
 # Init arrays
 yt = zeros(0)
@@ -49,9 +50,10 @@ yt_var_list = []
 P_pca_list = []
 pool_var_list = []
 for (i, sim_name) in enumerate(sim_names)
+    # "/Users/haakon/Documents/CliMA/SEDMF/LES_data/Output."
     les_dir = string("/groups/esm/ilopezgo/Output.", sim_name, sim_suffix[i])
     # Get SCM vertical levels for interpolation
-    z_scm = get_profile(string("Output.", sim_name, ".00000"), ["z_half"])
+    z_scm = get_profile(string("Output.", scm_sim_names[i], ".00000"), ["z_half"])
     # Get (interpolated and pool-normalized) observations, get pool variance vector
     yt_, yt_var_, pool_var = obs_LES(y_names[i], les_dir, ti[i], tf[i], z_scm = z_scm)
     push!(pool_var_list, pool_var)
@@ -88,18 +90,18 @@ samples[1,:] = yt
 #########
 
 algo = Inversion() # Sampler(vcat(get_mean(priors)...), get_cov(priors))
-N_ens = 40  # number of ensemble members
+N_ens = 1  # number of ensemble members
 println("NUMBER OF ENSEMBLE MEMBERS: ", N_ens)
 
 initial_params = construct_initial_ensemble(priors, N_ens, rng_seed=100)  # rand(1:1000)
 ekobj = EnsembleKalmanProcess(initial_params, yt, Γy, algo )
-scm_dir = "SCAMPy/"
+scm_dir = "SCAMPy/"  # "/Users/haakon/Documents/CliMA/SCAMPy/"
 scampy_handler = "call_stochasticBOMEX.sh"
 
 # Define caller function
 @everywhere g_(x::Array{Float64,1}) = run_SCAMPy(x, $param_names,
    $y_names, $scm_dir, $ti, $tf, P_pca_list = $P_pca_list,
-   norm_var_list = $pool_var_list, scampy_handler = scampy_handler)
+   norm_var_list = $pool_var_list, scampy_handler = $scampy_handler)
 
 # Create output dir
 outdir_path = string("results_ensemble", "_p", n_param,"_e", N_ens, "_i", d)
@@ -122,15 +124,17 @@ params_cons_i = deepcopy(
 )
 params = [row[:] for row in eachrow(params_cons_i')]
 @everywhere params = $params
+## Run one ensemble forward map (in parallel)
 array_of_tuples = pmap(g_, params) # Outer dim is params iterator
+##
 (g_ens_arr, g_ens_arr_pca) = ntuple(l->getindex.(array_of_tuples,l),2) # Outer dim is G̃, G 
-println(string("\n\nEKP evaluation ",i," finished. \n"))
+i=1; println(string("\n\nEKP evaluation ",i," finished. \n"))
 for j in 1:N_ens
     g_ens[j, :] = g_ens_arr_pca[j]
 end
 
 # update ensamble and compute error (should be unecessary)
-update_ensemble!(ekobj, Array(g_ens'))
+update_ensemble!(ekobj, Array(g_ens'), deterministic_forward_map=false)
 println("\nEnsemble updated. Saving results to file...\n")
 
 # Convert to arrays

@@ -25,9 +25,12 @@ done
 for simname in "${simnames[@]}"
 do
     # Create directory to store input files
-    mkdir sim_${simname}${suffix}
-    cp Output.${simname}.00000/paramlist_${simname}.in sim_${simname}${suffix}/paramlist_${simname}.in
-    cp Output.${simname}.00000/${simname}.in sim_${simname}${suffix}/${simname}.in
+    scampy_dir="sim_${simname}${suffix}"
+    scampy_paramlist="${scampy_dir}/paramlist_${simname}.in"
+    scampy_namelist="${scampy_dir}/${simname}.in"
+    mkdir ${scampy_dir}
+    cp Output.${simname}.00000/paramlist_${simname}.in ${scampy_paramlist}
+    cp Output.${simname}.00000/${simname}.in ${scampy_namelist}
     cp Output.${simname}.00000/paramlist_${simname}.in paramlist_${simname}.in
     cp Output.${simname}.00000/${simname}.in ${simname}.in
 
@@ -35,25 +38,31 @@ do
     for (( i=1; i<=$num_params; i++ ))
     do
         j=$((num_params+i))  # fetch name parameter (j=index of input argument)
-        line_param=$( awk '/"'${!j}'/{print NR}' sim_${simname}${suffix}/paramlist_${simname}.in )
-        gawk  'NR=='$line_param'{gsub(/'$val_prev_param'/,'"${!i}"')};1' sim_${simname}${suffix}/paramlist_${simname}.in > tmp${suffix} && mv tmp${suffix} sim_${simname}${suffix}/paramlist_${simname}.in
+        line_param=$( awk '/"'${!j}'/{print NR}' ${scampy_paramlist} )
+        gawk  'NR=='$line_param'{gsub(/'$val_prev_param'/,'"${!i}"')};1' ${scampy_paramlist} > tmp${suffix} && mv tmp${suffix} ${scampy_paramlist}
     done
 
     # Generate random 5-digit number to use as UUID
     uuid=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 5 | head -n 1)
-    line_uuid=$( awk '/"uuid/{print NR}' sim_${simname}${suffix}/${simname}.in )
-    awk 'NR==row_num {sub(val,val2)};1' row_num="$line_uuid" val="$uuid_prev" "val2=$uuid" sim_${simname}${suffix}/${simname}.in > tmp_${uuid} && mv tmp_${uuid} sim_${simname}${suffix}/${simname}.in
+    line_uuid=$( awk '/"uuid/{print NR}' ${scampy_namelist} )
+    awk 'NR==row_num {sub(val,val2)};1' row_num="$line_uuid" val="$uuid_prev" "val2=$uuid" ${scampy_namelist} > tmp_${uuid} && mv tmp_${uuid} ${scampy_namelist}
 
-    output_dir=$(awk -F"output_root" '/output_root/{print $2}' sim_${simname}${suffix}/${simname}.in)
+    output_dir=$(awk -F"output_root" '/output_root/{print $2}' ${scampy_namelist})
     output_dir=$(echo "$output_dir" | sed 's|[": ]||g')
+    full_output_dir="${output_dir}Output.${simname}.${uuid}"
+    output_paramlist="${full_output_dir}/paramlist_${simname}.in"
+    output_namelist="${full_output_dir}/${simname}.in"
 
     # Run SCAMPy with modified parameters
-    python ${scm_dir}/main.py sim_${simname}${suffix}/${simname}.in sim_${simname}${suffix}/paramlist_${simname}.in
+    conda run -n scampy python ${scm_dir}/main.py ${scampy_namelist} ${scampy_paramlist}
+    echo "simulation done. uuid: ${uuid}. output dir: '${full_output_dir}'"
+    
     # Copy used input files to output directory, since the copied files by SCAMPy are not the ones that are used.
-    cp sim_${simname}${suffix}/paramlist_${simname}.in ${output_dir}Output.${simname}.${uuid}/paramlist_${simname}.in
-    cp sim_${simname}${suffix}/${simname}.in ${output_dir}Output.${simname}.${uuid}/${simname}.in
-    rm -r sim_${simname}${suffix}
+    cp ${scampy_paramlist} ${output_paramlist}
+    cp ${scampy_namelist} ${output_namelist}
+    # echo "$(ls ${scm_dir})"
+    rm -r ${scampy_dir}
     rm paramlist_${simname}.in ${simname}.in
-    echo ${output_dir}Output.${simname}.${uuid} >> ${allparams}.txt
+    echo ${full_output_dir} >> ${allparams}.txt
 done
 
