@@ -10,11 +10,11 @@
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
-#SBATCH -J "uki_fs"   # job name
+#SBATCH -J "mb_3"   # job name
 
 module purge
 module load julia/1.5.2 hdf5/1.10.1 netcdf-c/4.6.1 openmpi/4.0.1
 julia --project=../.. -e 'using Pkg; Pkg.instantiate(); Pkg.API.precompile()'
 
 #julia --project -e 'push!(LOAD_PATH, "@pkglock"); using PkgLock; PkgLock.instantiate_precompile()'
-julia --project -p 19 calibrate.jl
+julia --project -p 19 minibatch_calibrate.jl
