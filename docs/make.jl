@@ -16,7 +16,8 @@ api = [
 
 examples = [
     "Template Example"  => "examples/template_example.md",
-    "Cloudy Example"    => "examples/Cloudy_example.md"
+    "Cloudy Example"    => "examples/Cloudy_example.md",
+    "ClimateMachine Example"    => "examples/ClimateMachine_example.md"
 ]
 
 pages = [
