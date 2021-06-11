@@ -82,7 +82,7 @@ The free parameters in the unscented Kalman inversion are $\alpha, r, \Sigma_{\n
     
     * otherwise $\Lambda = C_0$, this allows that the converged covariance matrix is a weighted average between the posterior covariance matrix with an uninformative prior and $C_0$.
 
-In a nutshell, users only need to change the $\alpha$ (`α_reg`), and the freqency to update the $\Lambda$ (`update_freq`).
+In a nutshell, users only need to change the $\alpha$ (`α_reg`), and the freqency to update the $\Lambda$ (`update_freq`). The user can first try `α_reg = 1.0` and `update_freq = 0`.
 
 
 ## Implementation
@@ -107,7 +107,7 @@ using EnsembleKalmanProcesses.ParameterDistributionStorage
 α_reg =  1.0
 # update_freq 1 : approximate posterior covariance matrix with an uninformative prior
 #             0 : weighted average between posterior covariance matrix with an uninformative prior and prior
-update_freq = 1
+update_freq = 0
 
 process = Unscented(prior_mean, prior_cov, length(truth_sample), α_reg, update_freq)
 ukiobj = EnsembleKalmanProcessModule.EnsembleKalmanProcess(truth_sample, truth.obs_noise_cov, process)
@@ -136,6 +136,8 @@ A call to the inversion algorithm can be performed with the `update_ensemble!` f
 
 The forward map $\mathcal{G}$ maps the space of unconstrained parameters $\theta$ to the outputs $y\in \mathbb{R}^d$. In practice, the user may not have access to such a map directly. And the map is a composition of several functions. The `update_ensemble!` uses only the evalutaions `g_ens` but not the forward map  
 
+For implementational reasons, the update_ensemble is performed by computing analysis stage first, followed by a prediction of the next sigma ensemble. And the first prediction is done in the initialization.
+
 ```julia
 N_iter = 20 # Number of steps of the algorithm
  
@@ -144,7 +146,7 @@ for n in 1:N_iter
     # define black box parameter to observation map, 
     # with certain parameter transformation related to imposing some constraints
     # i.e. θ -> e^θ  -> G(e^θ) = y
-    θ_n = get_u_final(eks_obj) # Get current ensemble
+    θ_n = get_u_final(ukiobj) # Get current ensemble
     ϕ_n = transform_unconstrained_to_constrained(prior, θ_n) # Transform parameters to physical/constrained space
     G_n = [H(Ψ(ϕ_n[:, i])) for i in 1:J]  # Evaluate forward map
     g_ens = hcat(G_n...)  # Reformat into `d x N_ens` matrix
