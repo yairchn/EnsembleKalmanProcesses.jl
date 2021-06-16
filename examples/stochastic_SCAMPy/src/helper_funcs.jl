@@ -4,117 +4,101 @@ using Interpolations
 using LinearAlgebra
 using Glob
 using JLD
+using Random
+using JSON
 # EKP modules
 using EnsembleKalmanProcesses.ParameterDistributionStorage
 
 """
-    run_SCAMPy(u, u_names, y_names, scm_dir,
-                    ti, tf = nothing;
-                    norm_var_list = nothing,
-                    P_pca_list = nothing)
+run_SCAMPy(
+    u::Array{FT, 1},
+    u_names::Array{String, 1},
+    scm_dir::String,
+) where {FT<:AbstractFloat}
 
-Run call_SCAMPy.sh using a set of parameters u and return
-the value of outputs defined in y_names, possibly after
-normalization and projection onto lower dimensional space
-using PCA.
+Run SCAMPy using a set of parameters `u` corresponding to parameter names `u_names`
 
 Inputs:
  - u :: Values of parameters to be used in simulations.
  - u_names :: SCAMPy names for parameters u.
- - y_names :: Name of outputs requested for each flow configuration.
- - ti :: Vector of starting times for observation intervals. If tf=nothing,
-         snapshots at ti are returned.
- - tf :: Vector of ending times for observation intervals.
- - norm_var_list :: Pooled variance vectors. If given, use to normalize output.
- - P_pca_list :: Vector of projection matrices P_pca for each flow configuration.
+ - scm_dir :: path/to/SCAMPy/
 Outputs:
- - g_scm :: Vector of model evaluations concatenated for all flow configurations.
- - g_scm_pca :: Projection of g_scm onto principal subspace spanned by eigenvectors.
+ - sim_dirs :: array of paths pointing to output data 
 """
-function run_SCAMPy(u::Array{FT, 1},
-                    u_names::Array{String, 1},
-                    y_names::Union{Array{String, 1}, Array{Array{String,1},1}},
-                    scm_dir::String,
-                    ti::Union{FT, Array{FT,1}},
-                    tf::Union{FT, Array{FT,1}, Nothing} = nothing;
-                    norm_var_list = nothing,
-                    P_pca_list = nothing,
-                    scampy_handler = "call_SCAMPy.sh",
-                    ) where {FT<:AbstractFloat}
+function run_SCAMPy(
+            u::Array{FT, 1},
+            u_names::Array{String, 1},
+            scm_dir::String,
+        ) where {FT<:AbstractFloat}
 
     # Check dimensionality
     @assert length(u_names) == length(u)
-    exe_path = string(scm_dir, scampy_handler)
-    sim_uuid  = u[1]
-    for i in 2:length(u_names)
-        sim_uuid = string(sim_uuid,u[i])
-    end
-    command = `bash $exe_path $u $u_names`
-    run(command)
 
-    # SCAMPy file descriptor
-    sim_uuid = string(sim_uuid, ".txt")
-    sim_dirs = readlines(sim_uuid)
-    run(`rm $sim_uuid`)
-    
-    g_scm = zeros(0)
-    g_scm_pca = zeros(0)
-    # For now it is assumed that if length(ti) != length(sim_dirs),
-    # there is only one simulation and multiple time intervals.
-    if length(ti) != length(sim_dirs)
-        @assert length(sim_dirs) == 1
-        sim_dir = sim_dirs[1]
-        for (i, ti_) in enumerate(ti)
-            tf_ = !isnothing(tf) ? tf[i] : nothing
-            y_names_ = typeof(y_names)==Array{Array{String,1},1} ? y_names[i] : y_names
+    # run SCAMPy and get simulation dirs
+    sim_dirs = run_SCAMPy_handler(u,u_names,scm_dir)
 
-            g_scm_flow = get_profile(sim_dir, y_names_, ti = ti_, tf = tf_)
-            if !isnothing(norm_var_list)
-                g_scm_flow = normalize_profile(g_scm_flow, y_names_, norm_var_list[1])
-            end
-            if !isnothing(P_pca_list)
-                append!(g_scm_pca, P_pca_list[1]' * g_scm_flow)
-            end
-            append!(g_scm, g_scm_flow)
-        end
-        run(`rm -r $sim_dir`)
-    else
-        for (i, sim_dir) in enumerate(sim_dirs)
-            ti_ = ti[i]
-            tf_ = !isnothing(tf) ? tf[i] : nothing
-            y_names_ = typeof(y_names)==Array{Array{String,1},1} ? y_names[i] : y_names
+    ## TODO :: Get loss function output
+    # ...
+    # ...
+    ##
 
-            g_scm_flow = get_profile(sim_dir, y_names_, ti = ti_, tf = tf_)
-            if !isnothing(norm_var_list)
-                g_scm_flow = normalize_profile(g_scm_flow, y_names_, norm_var_list[i])
-            end
-            append!(g_scm, g_scm_flow)
-            if !isnothing(P_pca_list)
-                append!(g_scm_pca, P_pca_list[i]' * g_scm_flow)
-            end
-            
-            run(`rm -r $sim_dir`)
-        end
-    end
-
-    for i in eachindex(g_scm)
-        if isnan(g_scm[i])
-            g_scm[i] = 1.0e5
-        end
-    end
-    if !isnothing(P_pca_list)
-        for i in eachindex(g_scm_pca)
-            if isnan(g_scm_pca[i])
-                g_scm_pca[i] = 1.0e5
-            end
-        end
-        println("LENGTH OF G_SCM_ARR", length(g_scm))
-        println("LENGTH OF G_SCM_ARR_PCA", length(g_scm_pca))
-        return g_scm, g_scm_pca
-    else
-        return g_scm
-    end
+    return sim_dirs
 end
+
+
+function run_SCAMPy_handler(
+            u::Array{FT, 1},
+            u_names::Array{String, 1},
+            scm_dir::String,
+        ) where {FT<:AbstractFloat}
+    # create temporary directory to store SCAMPy data in
+    tmpdir = string(mktempdir(pwd()),"/")
+
+    # simulations to be run
+    simnames = ["StochasticBomex"]
+
+    # output directories
+    output_dirs = String[]
+
+    for simname in simnames
+        inputdir = string("Output.",simname,".00000/")
+        namelist_fname = string(simname,".in")
+        paramlist_fname = string("paramlist_",simname,".in")
+        namelist = JSON.parsefile(string(inputdir,namelist_fname))
+        paramlist = JSON.parsefile(string(inputdir,paramlist_fname))
+        
+        # update parameter values
+        for (pName, pVal) in zip(u_names, u)
+            paramlist["turbulence"]["EDMF_PrognosticTKE"][pName] = pVal
+        end
+        # write updated paramlist `tmpdir`
+        paramlist_path = string(tmpdir,paramlist_fname)
+        open(paramlist_path, "w") do io
+            JSON.print(io, paramlist, 4)
+        end
+
+        # generate random uuid
+        uuid_end = randstring(5)
+        uuid_start = namelist["meta"]["uuid"][1:end-5]
+        namelist["meta"]["uuid"] = string(uuid_start,uuid_end)
+        # set output dir to `tmpdir`
+        namelist["output"]["output_root"] = string(tmpdir)
+        # write updated namelist to `tmpdir`
+        namelist_path = string(tmpdir,namelist_fname)
+        open(namelist_path, "w") do io
+            JSON.print(io, namelist, 4)
+        end
+
+        # run SCAMPy with modified parameters
+        main_path = string(scm_dir, "main.py")
+        command = `conda run -n scampy python $main_path $namelist_path $paramlist_path`
+        run(command)
+
+        push!(output_dirs, string(tmpdir,"Output.",simname,".",uuid_end))
+    end
+    return output_dirs
+end
+
 
 """
     obs_LES(y_names, sim_dir, ti, tf;
@@ -263,9 +247,9 @@ function get_profile(sim_dir::String,
                         var_ = var_.*rho_half
                     end
                 end
-                if !isnothing(tf)
+                if !isnothing(tf)  # if `ti` and `tf` is provided, return a mean of the time period.
                     append!(prof_vec, mean(var_[:, ti_index:tf_index], dims=2))
-                else
+                else  # if only `ti` is provided, get that timestep.
                     append!(prof_vec, var_[:, ti_index])
                 end
             end
