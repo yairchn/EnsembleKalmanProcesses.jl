@@ -42,19 +42,17 @@ perform_PCA = true # Performs PCA on data
 
 # Define name of PyCLES simulation to learn from
 sim_names = ["Bomex"]  ## FOR NOW: ASSUME ONLY ONE SIMULATION
-sim_suffix = [".may18"]
-scm_sim_names = ["StochasticBomex"]  # corresponding scm dir
 
 # Init arrays
 yt = zeros(0)
 yt_var_list = []
 for (i, sim_name) in enumerate(sim_names)
     # "/groups/esm/ilopezgo/Output."
-    les_dir = string("/Users/haakon/Documents/CliMA/SEDMF/LES_data/Output.", sim_name, sim_suffix[i])
+    les_file = string("/groups/esm/yair/reduced_les/", sim_name, ".nc")
     # Get SCM vertical levels for interpolation
-    z_scm = get_profile(string("Output.", scm_sim_names[i], ".00000"), ["z_half"])
+    z_scm = get_profile(string("Output.", sim_names[i], ".00000/stats/Stats.", sim_names[i],".nc"), ["z_half"])
     # Get (interpolated and pool-normalized) observations, get pool variance vector
-    yt_, yt_var_, pool_var = obs_LES(y_names[i], les_dir, ti[i], tf[i], z_scm = z_scm)
+    yt_, yt_var_, pool_var = obs_LES(y_names[i], les_file, ti[i], tf[i], z_scm = z_scm)
     if perform_PCA
         yt_pca, yt_var_pca, P_pca = obs_PCA(yt_, yt_var_)
         append!(yt, yt_pca)
@@ -88,7 +86,7 @@ println("NUMBER OF ENSEMBLE MEMBERS: ", N_ens)
 
 initial_params = construct_initial_ensemble(priors, N_ens, rng_seed=rand(1:1000))
 ekobj = EnsembleKalmanProcess(initial_params, yt, Γy, algo)
-scm_dir = "/Users/haakon/Documents/CliMA/SCAMPy/"  # path to SCAMPy
+scm_dir = "/home/yairchn/SCAMPy/"  # path to SCAMPy
 
 # Define caller function
 @everywhere g_(x::Array{Float64,1}) = run_SCAMPy(
@@ -124,7 +122,7 @@ sim_dirs_ens_ = filter(x -> !isnothing(x), sim_dirs_ens[1])  # dirty hack for 1-
 
 # get a simulation directory `.../Output.SimName.UUID`, and corresponding parameter name
 for (ens_i, sim_dir) in enumerate(sim_dirs_ens_)  # each ensemble returns a list of simulation directories
-    scm_sim_name = scm_sim_names[1]
+    scm_sim_name = sim_names[1]
     # Copy simulation data to output directory
     dirname = splitpath(sim_dir)[end]
     @assert dirname[1:7] == "Output."  # sanity check

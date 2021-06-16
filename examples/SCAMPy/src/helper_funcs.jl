@@ -116,7 +116,7 @@ function run_SCAMPy(u::Array{FT, 1},
 end
 
 """
-    obs_LES(y_names, sim_dir, ti, tf;
+    obs_LES(y_names, sim_file, ti, tf;
             z_scm = nothing, normalize = false)
 
 Get LES output for observed variables y_names, interpolated to
@@ -134,23 +134,23 @@ Outputs:
  - y_tvar :: Observational covariance matrix, possibly pool-normalized.
 """
 function obs_LES(y_names::Array{String, 1},
-                    sim_dir::String,
+                    sim_file::String,
                     ti::FT,
                     tf::FT;
                     z_scm::Union{Array{FT, 1}, Nothing} = nothing,
                     normalize = true,
                     ) where {FT<:AbstractFloat}
     
-    y_names_les = get_les_names(y_names, sim_dir)
-    y_tvar, poolvar_vec = get_time_covariance(sim_dir, y_names_les,
+    y_names_les = y_names
+    y_tvar, poolvar_vec = get_time_covariance(sim_file, y_names_les,
         ti = ti, tf = tf, z_scm=z_scm, normalize=normalize)
-    y_highres = get_profile(sim_dir, y_names_les, ti = ti, tf = tf)
+    y_highres = get_profile(sim_file, y_names_les, ti = ti, tf = tf)
     if normalize
         y_highres = normalize_profile(y_highres, y_names, poolvar_vec)
     end
     if !isnothing(z_scm)
         y_ = zeros(0)
-        z_les = get_profile(sim_dir, ["z_half"])
+        z_les = get_profile(sim_file, ["z_half"])
         num_outputs = Integer(length(y_highres)/length(z_les))
         for i in 1:num_outputs
             y_itp = interpolate( (z_les,), 
@@ -223,16 +223,16 @@ function padeops_m_σ2(padeops_data,
     return padeops_snapshot, padeops_var
 end
 
-function get_profile(sim_dir::String,
+function get_profile(sim_file::String,
                      var_name::Array{String,1};
                      ti::Float64=0.0,
                      tf=nothing,
                      getFullHeights=false)
 
     if length(var_name) == 1 && occursin("z_half", var_name[1])
-        prof_vec = nc_fetch(sim_dir, "profiles", var_name[1])
+        prof_vec = nc_fetch(sim_file, "profiles", var_name[1])
     else
-        t = nc_fetch(sim_dir, "timeseries", "t")
+        t = nc_fetch(sim_file, "timeseries", "t")
         dt = length(t) > 1 ? abs(t[2]-t[1]) : 0.0
         # Check that times are contained in simulation output
         ti_diff, ti_index = findmin( broadcast(abs, t.-ti) )
@@ -245,22 +245,12 @@ function get_profile(sim_dir::String,
             println("ti_diff > dt ", "ti_diff = ", ti_diff, "dt = ", dt, "ti = ", ti,
                  "t[1] = ", t[1], "t[end] = ", t[end])
             for i in 1:length(var_name)
-                var_ = nc_fetch(sim_dir, "profiles", "z_half")
+                var_ = nc_fetch(sim_file, "profiles", "z_half")
                 append!(prof_vec, 1.0e5*ones(length(var_[:])))
             end
         else
             for i in 1:length(var_name)
-                if occursin("horizontal_vel", var_name[i])
-                    u_ = nc_fetch(sim_dir, "profiles", "u_mean")
-                    v_ = nc_fetch(sim_dir, "profiles", "v_mean")
-                    var_ = sqrt.(u_.^2 + v_.^2)
-                else
-                    var_ = nc_fetch(sim_dir, "profiles", var_name[i])
-                    # LES vertical fluxes are per volume, not mass
-                    if occursin("resolved_z_flux", var_name[i])
-                        rho_half=nc_fetch(sim_dir, "reference", "rho0_half")
-                        var_ = var_.*rho_half
-                    end
+                var_ = nc_fetch(sim_file, "profiles", var_name[i])
                 end
                 if !isnothing(tf)
                     append!(prof_vec, mean(var_[:, ti_index:tf_index], dims=2))
@@ -270,7 +260,7 @@ function get_profile(sim_dir::String,
             end
         end
     end
-    return prof_vec 
+    return prof_vec
 end
 
 """
@@ -292,7 +282,7 @@ function normalize_profile(profile_vec, var_name, var_vec)
 end
 
 """
-    get_time_covariance(sim_dir::String,
+    get_time_covariance(sim_file::String,
                      var_name::Array{String,1};
                      ti::Float64=0.0,
                      tf=0.0,
@@ -303,13 +293,13 @@ end
 Obtain the covariance matrix of a group of profiles, where the covariance
 is obtained in time.
 Inputs:
- - sim_dir :: Name of simulation directory.
+ - sim_file :: Path to simulation file.
  - var_name :: List of variable names to be included.
  - ti, tf :: Initial and final times defining averaging interval.
  - z_scm :: If given, interpolates covariance matrix to this locations.
  - normalize :: Boolean specifying variable normalization.
 """
-function get_time_covariance(sim_dir::String,
+function get_time_covariance(sim_file::String,
                      var_name::Array{String,1};
                      ti::Float64=0.0,
                      tf=0.0,
@@ -317,7 +307,7 @@ function get_time_covariance(sim_dir::String,
                      z_scm::Union{Array{Float64, 1}, Nothing} = nothing,
                      normalize=false)
 
-    t = nc_fetch(sim_dir, "timeseries", "t")
+    t = nc_fetch(sim_file, "timeseries", "t")
     dt = t[2]-t[1]
     # Find closest interval in data
     ti_diff, ti_index = findmin( broadcast(abs, t.-ti) )
@@ -327,10 +317,10 @@ function get_time_covariance(sim_dir::String,
     poolvar_vec = zeros(num_outputs)
 
     for i in 1:num_outputs
-        var_ = nc_fetch(sim_dir, "profiles", var_name[i])
+        var_ = nc_fetch(sim_file, "profiles", var_name[i])
         # LES vertical fluxes are per volume, not mass
         if occursin("resolved_z_flux", var_name[i])
-            rho_half=nc_fetch(sim_dir, "reference", "rho0_half")
+            rho_half=nc_fetch(sim_file, "reference", "rho0_half")
             var_ = var_.*rho_half
         end
         # Store pooled variance
@@ -338,7 +328,7 @@ function get_time_covariance(sim_dir::String,
         ts_var_i = normalize ? var_[:, ti_index:tf_index]./ sqrt(poolvar_vec[i]) : var_[:, ti_index:tf_index]
         # Interpolate in space
         if !isnothing(z_scm)
-            z_les = getFullHeights ? get_profile(sim_dir, ["z"]) : get_profile(sim_dir, ["z_half"])
+            z_les = getFullHeights ? get_profile(sim_file, ["z"]) : get_profile(sim_file, ["z_half"])
             # Create interpolant
             ts_var_i_itp = interpolate( (z_les, 1:tf_index-ti_index+1),
                                         ts_var_i, ( Gridded(Linear()), NoInterp() ))
@@ -380,11 +370,9 @@ function get_les_names(scm_y_names::Array{String,1}, sim_dir::String)
     return y_names
 end
 
-function nc_fetch(dir, nc_group, var_name)
+function nc_fetch(file_path, nc_group, var_name)
     find_prev_to_name(x) = occursin("Output", x)
-    split_dir = split(dir, ".")
-    sim_name = split_dir[findall(find_prev_to_name, split_dir)[1]+1]
-    ds = NCDataset(string(dir, "/stats/Stats.", sim_name, ".nc"))
+    ds = NCDataset(file_path)
     ds_group = ds.group[nc_group]
     ds_var = deepcopy( Array(ds_group[var_name]) )
     close(ds)
