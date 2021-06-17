@@ -135,7 +135,6 @@ scampy_dir = "SCAMPy/"
     x, $param_names, $y_names, $scampy_dir, 
     $scm_data_root, $scm_names, $t_starts, $t_ends,
     P_pca_list = $P_pca_list, norm_var_list = $pool_var_list,
-    scampy_handler = "call_BOMEX.sh"
 )
 
 # Create output dir

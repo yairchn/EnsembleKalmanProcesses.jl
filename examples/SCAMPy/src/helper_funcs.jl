@@ -19,7 +19,6 @@ using EnsembleKalmanProcesses.ParameterDistributionStorage
         tf::Union{Array{FT,1}, Array{Array{FT,1},1}, Nothing} = nothing;
         norm_var_list = nothing,
         P_pca_list = nothing,
-        scampy_handler = "call_SCAMPy.sh",
     ) where {FT<:AbstractFloat}
 
 Run call_SCAMPy.sh using a set of parameters u and return
@@ -54,7 +53,6 @@ function run_SCAMPy(
         tf::Union{Array{FT,1}, Array{Array{FT,1},1}, Nothing} = nothing;
         norm_var_list = nothing,
         P_pca_list = nothing,
-        scampy_handler = "call_SCAMPy.sh",
     ) where {FT<:AbstractFloat}
 
     # Check parameter dimensionality
@@ -186,7 +184,7 @@ function run_SCAMPy_handler(
         command = `conda run -n scampy python $main_path $namelist_path $paramlist_path`
         run(command)
 
-        push!(output_dirs, tmpdir*"Output."*simname*"."*uuid_end)
+        push!(output_dirs, joinpath(tmpdir,"Output."*simname*"."*uuid_end))
     end  # end `simnames` loop
     return output_dirs
 end
