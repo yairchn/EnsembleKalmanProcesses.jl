@@ -8,10 +8,19 @@ using JLD
 using EnsembleKalmanProcesses.ParameterDistributionStorage
 
 """
-    run_SCAMPy(u, u_names, y_names, scm_dir,
-                    ti, tf = nothing;
-                    norm_var_list = nothing,
-                    P_pca_list = nothing)
+    run_SCAMPy(
+        u::Array{FT, 1},
+        u_names::Array{String, 1},
+        y_names::Union{Array{String, 1}, Array{Array{String,1},1}},
+        scampy_dir::String,
+        scm_data_root::String,
+        scm_names::String,
+        ti::Union{Array{FT,1}, Array{Array{FT,1},1}},
+        tf::Union{Array{FT,1}, Array{Array{FT,1},1}, Nothing} = nothing;
+        norm_var_list = nothing,
+        P_pca_list = nothing,
+        scampy_handler = "call_SCAMPy.sh",
+    ) where {FT<:AbstractFloat}
 
 Run call_SCAMPy.sh using a set of parameters u and return
 the value of outputs defined in y_names, possibly after
@@ -22,8 +31,11 @@ Inputs:
  - u :: Values of parameters to be used in simulations.
  - u_names :: SCAMPy names for parameters u.
  - y_names :: Name of outputs requested for each flow configuration.
- - ti :: Vector of starting times for observation intervals. If tf=nothing,
-         snapshots at ti are returned.
+ - scampy_dir :: Path to SCAMPy directory
+ - scm_data_root :: Path to input data for the SCM model.
+ - scm_names :: Names of SCAMPy cases
+ - ti :: Vector of starting times for observation intervals. If t_end=nothing,
+         snapshots at t_start are returned.
  - tf :: Vector of ending times for observation intervals.
  - norm_var_list :: Pooled variance vectors. If given, use to normalize output.
  - P_pca_list :: Vector of projection matrices P_pca for each flow configuration.
@@ -31,33 +43,26 @@ Outputs:
  - g_scm :: Vector of model evaluations concatenated for all flow configurations.
  - g_scm_pca :: Projection of g_scm onto principal subspace spanned by eigenvectors.
 """
-function run_SCAMPy(u::Array{FT, 1},
-                    u_names::Array{String, 1},
-                    y_names::Union{Array{String, 1}, Array{Array{String,1},1}},
-                    scm_dir::String,
-                    ti::Union{Array{FT,1}, Array{Array{FT,1},1}},
-                    tf::Union{Array{FT,1}, Array{Array{FT,1},1}, Nothing} = nothing;
-                    norm_var_list = nothing,
-                    P_pca_list = nothing,
-                    scampy_handler = "call_SCAMPy.sh",
-                    ) where {FT<:AbstractFloat}
+function run_SCAMPy(
+        u::Array{FT, 1},
+        u_names::Array{String, 1},
+        y_names::Union{Array{String, 1}, Array{Array{String,1},1}},
+        scampy_dir::String,
+        scm_data_root::String,
+        scm_names::Array{String, 1},
+        ti::Union{Array{FT,1}, Array{Array{FT,1},1}},
+        tf::Union{Array{FT,1}, Array{Array{FT,1},1}, Nothing} = nothing;
+        norm_var_list = nothing,
+        P_pca_list = nothing,
+        scampy_handler = "call_SCAMPy.sh",
+    ) where {FT<:AbstractFloat}
 
     # Check parameter dimensionality
     @assert length(u_names) == length(u)
 
-    # Run simulations
-    exe_path = string(scm_dir, scampy_handler)
-    sim_uuid  = u[1]
-    for i in 2:length(u_names)
-        sim_uuid = string(sim_uuid,u[i])
-    end
-    command = `bash $exe_path $u $u_names`
-    run(command)
+    # run SCAMPy and get simulation dirs
+    sim_dirs = run_SCAMPy_handler(u, u_names, scampy_dir, scm_names, scm_data_root)
 
-    # SCAMPy file descriptor
-    sim_uuid = string(sim_uuid, ".txt")
-    sim_dirs = readlines(sim_uuid)
-    run(`rm $sim_uuid`)
     # Check consistent time interval dims
     @assert length(ti) == length(sim_dirs)
 
@@ -78,10 +83,8 @@ function run_SCAMPy(u::Array{FT, 1},
             if !isnothing(P_pca_list)
                 append!(g_scm_pca, P_pca_list[i]' * g_scm_flow)
             end
-            
-            run(`rm -r $sim_dir`)
         end
-    elseif typeof(ti) == Array{Array{FT,1},1} # mult intervals per simulation
+    elseif typeof(ti) == Array{Array{FT,1},1} # multiple intervals per simulation
         config_num = 1
         for (i, sim_dir) in enumerate(sim_dirs)
             y_names_ = typeof(y_names)==Array{Array{String,1},1} ? y_names[i] : y_names
@@ -97,9 +100,9 @@ function run_SCAMPy(u::Array{FT, 1},
                 end
                 config_num += 1
             end
-            run(`rm -r $sim_dir`)
         end
     end
+    # penalize nan-values in output
     for i in eachindex(g_scm)
         g_scm[i] = isnan(g_scm[i]) ? 1.0e5 : g_scm[i]
     end
@@ -109,10 +112,83 @@ function run_SCAMPy(u::Array{FT, 1},
         end
         println("LENGTH OF G_SCM_ARR : ", length(g_scm))
         println("LENGTH OF G_SCM_ARR_PCA : ", length(g_scm_pca))
-        return g_scm, g_scm_pca
+        return sim_dirs, g_scm, g_scm_pca
     else
-        return g_scm
+        return sim_dirs, g_scm
     end
+end
+
+
+"""
+    function run_SCAMPy_handler(
+        u::Array{FT, 1},  
+        u_names::Array{String, 1},
+        scampy_dir::String,
+        scm_names::String,
+    ) where {FT<:AbstractFloat}
+
+Run a list of cases using a set of parameters `u_names` with values `u`,
+and return a list of directories pointing to where data is stored for 
+each simulation run.
+
+Inputs:
+ - u :: Values of parameters to be used in simulations.
+ - u_names :: SCAMPy names for parameters u.
+ - scampy_dir :: Path to SCAMPy directory
+ - scm_names :: Names of SCAMPy cases to run
+ - scm_data_root :: Path to SCAMPy cases
+Outputs:
+ - output_dirs :: list of directories containing output data from the SCAMPy runs.
+"""
+function run_SCAMPy_handler(
+        u::Array{FT, 1},  
+        u_names::Array{String, 1},
+        scampy_dir::String,
+        scm_names::Array{String, 1},
+        scm_data_root::String,
+    ) where {FT<:AbstractFloat}
+    # create temporary directory to store SCAMPy data in
+    tmpdir = mktempdir(pwd())
+
+    # output directories
+    output_dirs = String[]
+
+    for simname in scm_names
+        # For each scm case, fetch namelist and paramlist
+        inputdir = joinpath(scm_data_root, "Output."*simname*".00000")
+        namelist = JSON.parsefile(joinpath(inputdir, simname*".in"))
+        paramlist = JSON.parsefile(joinpath(inputdir, "paramlist_"*simname*".in"))
+
+        # update parameter values
+        for (pName, pVal) in zip(u_names, u)
+            paramlist["turbulence"]["EDMF_PrognosticTKE"][pName] = pVal
+        end
+        # write updated paramlist to `tmpdir`
+        paramlist_path = joinpath(tmpdir,paramlist_fname)
+        open(paramlist_path, "w") do io
+            JSON.print(io, paramlist, 4)
+        end
+
+        # generate random uuid
+        uuid_end = randstring(5)
+        uuid_start = string(namelist["meta"]["uuid"][1:end-5])
+        namelist["meta"]["uuid"] = uuid_start*uuid_end
+        # set output dir to `tmpdir`
+        namelist["output"]["output_root"] = tmpdir
+        # write updated namelist to `tmpdir`
+        namelist_path = joinpath(tmpdir, namelist_fname)
+        open(namelist_path, "w") do io
+            JSON.print(io, namelist, 4)
+        end
+
+        # run SCAMPy with modified parameters
+        main_path = joinpath(scampy_dir, "main.py")
+        command = `conda run -n scampy python $main_path $namelist_path $paramlist_path`
+        run(command)
+
+        push!(output_dirs, tmpdir*"Output."*simname*"."*uuid_end)
+    end  # end `simnames` loop
+    return output_dirs
 end
 
 """

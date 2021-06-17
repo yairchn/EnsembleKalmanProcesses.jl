@@ -42,9 +42,11 @@ priors = ParameterDistribution(prior_dist, constraints, param_names)
 #########  Retrieve true LES samples from PyCLES data and transform
 #########
 
+# Path to LES
+
 # Define observation window (s)
-ti = [14400.0]
-tf = [21600.0]
+t_starts = [4.0] * 3600  # 4hrs
+t_ends = [6.0] * 3600  # 6hrs
 # Define variables considered in the loss function
 y_names = Array{String, 1}[]
 push!(y_names, ["thetal_mean", "ql_mean", "qt_mean", "total_flux_h", "total_flux_qt"])
@@ -52,9 +54,12 @@ push!(y_names, ["thetal_mean", "ql_mean", "qt_mean", "total_flux_h", "total_flux
 # Define preconditioning and regularization of inverse problem
 perform_PCA = true # Performs PCA on data
 
-# Define name of PyCLES simulation to learn from
-sim_names = ["Bomex"]
-sim_suffix = [".may18"]
+# Define name of PyCLES simulations to learn from
+les_names = ["Bomex"]
+les_suffixes = [".may18"]
+les_root = "/groups/esm/ilopezgo"
+scm_names = ["Bomex"]  # same as `les_names` in perfect model setting
+scm_data_root = pwd()  # path to folder with `Output.<scm_name>.00000` files
 
 # Init arrays
 yt = zeros(0)
@@ -63,12 +68,20 @@ yt_big = zeros(0)
 yt_var_list_big = Array{Float64, 2}[]
 P_pca_list = []
 pool_var_list = []
-for (i, sim_name) in enumerate(sim_names)
-    les_dir = string("/groups/esm/ilopezgo/Output.", sim_name, sim_suffix[i])
+@assert (  # Each entry in these lists correspond to one simulation case
+    length(les_names) == length(les_suffixes) == length(scm_names) 
+    == length(y_names) == length(t_starts) == length(t_ends)
+)
+for (les_name, les_suffix, scm_name, y_name, tstart, tend) in zip(
+        les_names, les_suffixes, scm_names, y_names, t_starts, t_ends
+    )
+    les_file_name = string("Output.", les_name, les_suffix)
+    les_dir = joinpath(les_root , les_file_name)
     # Get SCM vertical levels for interpolation
-    z_scm = get_profile(string("Output.", sim_name, ".00000"), ["z_half"])
+    scm_file_name = string("Output.", scm_name, ".00000")
+    z_scm = get_profile(joinpath(scm_data_root, scm_file_name), ["z_half"])
     # Get (interpolated and pool-normalized) observations, get pool variance vector
-    yt_, yt_var_, pool_var = obs_LES(y_names[i], les_dir, ti[i], tf[i], z_scm = z_scm)
+    yt_, yt_var_, pool_var = obs_LES(y_name, les_dir, tstart, tend, z_scm = z_scm)
     push!(pool_var_list, pool_var)
     if perform_PCA
         yt_pca, yt_var_pca, P_pca = obs_PCA(yt_, yt_var_)
@@ -89,13 +102,13 @@ d = length(yt) # Length of data array
 # Construct global observational covariance matrix, TSVD
 yt_var = zeros(d, d)
 vars_num = 1
-for (k,config_cov) in enumerate(yt_var_list)
+for config_cov in yt_var_list
     vars = length(config_cov[1,:])
     yt_var[vars_num:vars_num+vars-1, vars_num:vars_num+vars-1] = config_cov
     global vars_num = vars_num+vars
 end
 
-yt_var_big =cov_from_cov_list(yt_var_list_big)
+yt_var_big = cov_from_cov_list(yt_var_list_big)
 
 n_samples = 1
 samples = zeros(n_samples, length(yt))
@@ -115,12 +128,15 @@ println("NUMBER OF ITERATIONS: ", N_iter)
 
 initial_params = construct_initial_ensemble(priors, N_ens, rng_seed=rand(1:1000))
 ekobj = EnsembleKalmanProcess(initial_params, yt, Γy, algo )
-scm_dir = "SCAMPy/"
+scampy_dir = "SCAMPy/"
 
 # Define caller function
-@everywhere g_(x::Array{Float64,1}) = run_SCAMPy(x, $param_names,
-   $y_names, $scm_dir, $ti, $tf, P_pca_list = $P_pca_list,
-   norm_var_list = $pool_var_list, scampy_handler = "call_BOMEX.sh") 
+@everywhere g_(x::Array{Float64,1}) = run_SCAMPy(
+    x, $param_names, $y_names, $scampy_dir, 
+    $scm_data_root, $scm_names, $t_starts, $t_ends,
+    P_pca_list = $P_pca_list, norm_var_list = $pool_var_list,
+    scampy_handler = "call_BOMEX.sh"
+)
 
 # Create output dir
 prefix = "results_"
@@ -146,7 +162,7 @@ for i in 1:N_iter
     params = [row[:] for row in eachrow(params_cons_i')]
     @everywhere params = $params
     array_of_tuples = pmap(g_, params) # Outer dim is params iterator
-    (g_ens_arr, g_ens_arr_pca) = ntuple(l->getindex.(array_of_tuples,l),2) # Outer dim is G̃, G 
+    (sim_dirs_arr, g_ens_arr, g_ens_arr_pca) = ntuple(l->getindex.(array_of_tuples,l),3) # Outer dim is G̃, G 
     println(string("\n\nEKP evaluation ",i," finished. Updating ensemble ...\n"))
     for j in 1:N_ens
       g_ens[j, :] = g_ens_arr_pca[j]
@@ -205,9 +221,25 @@ for i in 1:N_iter
     npzwrite(string(outdir_path,"/norm_err.npy"), norm_err_arr)
     npzwrite(string(outdir_path,"/g_big.npy"), g_big_arr)
     for (l, P_pca) in enumerate(P_pca_list)
-      npzwrite(string(outdir_path,"/P_pca_",sim_names[l],".npy"), P_pca)
-      npzwrite(string(outdir_path,"/pool_var_",sim_names[l],".npy"), pool_var_list[l])
+      npzwrite(string(outdir_path,"/P_pca_",scm_names[l],".npy"), P_pca)
+      npzwrite(string(outdir_path,"/pool_var_",scm_names[l],".npy"), pool_var_list[l])
     end
+
+    # Save full EDMF data from every ensemble
+    eki_iter_path = string("EKI_iter_",i)
+    run(`mkdir $eki_iter_path`)
+    # get a simulation directory `.../Output.SimName.UUID`, and corresponding parameter name
+    for (ens_i, sim_dir) in enumerate(sim_dirs_arr)  # each ensemble returns a list of simulation directories
+        for scm_name in scm_names
+        # Copy simulation data to output directory
+        dirname = splitpath(sim_dir)[end]
+        @assert dirname[1:7] == "Output."  # sanity check
+        output_data = string(sim_dir,"/stats/Stats.",scm_sim_name,".nc")
+        new_data_loc = joinpath(eki_iter_path, outdir_path, string("Stats.",scm_sim_name,".",ens_i,".nc"))
+        cmd = `cp $output_data $new_data_loc`
+        run(cmd)
+    end
+
 end
 
 # EKP results: Has the ensemble collapsed toward the truth?
