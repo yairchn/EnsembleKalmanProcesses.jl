@@ -91,7 +91,7 @@ function run_SCAMPy_handler(
 
         # run SCAMPy with modified parameters
         main_path = string(scm_dir, "main.py")
-        command = `conda run -n scampy python $main_path $namelist_path $paramlist_path`
+        command = `python $main_path $namelist_path $paramlist_path`
         run(command)
 
         push!(output_dirs, string(tmpdir,"Output.",simname,".",uuid_end))
