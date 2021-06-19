@@ -34,8 +34,8 @@ known_value = [Samples([0.0])]
 priors = ParameterDistribution(known_value, [no_constraint()], param_names)
 
 # Define observation window (s)
-ti = [4.0] * 3600  # 4hrs
-tf = [6.0] * 3600  # 6hrs
+t_starts = [4.0] * 3600  # 4hrs
+t_ends = [6.0] * 3600  # 6hrs
 # Define variables considered in the loss function
 y_names = Array{String, 1}[]
 push!(y_names, ["thetal_mean", "ql_mean", "qt_mean", "total_flux_h", "total_flux_qt"])
@@ -45,20 +45,27 @@ push!(y_names, ["thetal_mean", "ql_mean", "qt_mean", "total_flux_h", "total_flux
 perform_PCA = true # Performs PCA on data
 
 # Define name of PyCLES simulation to learn from
-sim_names = ["Bomex"]  ## FOR NOW: ASSUME ONLY ONE SIMULATION
-sim_suffix = [".may18"]
-scm_sim_names = ["StochasticBomex"]  # corresponding scm dir
+les_names = ["Bomex"]
+les_suffixes = ["may18"]
+les_root = "/Users/haakon/Documents/CliMA/SEDMF/LES_data"  # "/groups/esm/ilopezgo"
+scm_names = ["StochasticBomex"]  # same as `les_names` in perfect model setting
+scm_data_root = pwd()  # path to folder with `Output.<scm_name>.00000` files
 
 # Init arrays
 yt = zeros(0)
 yt_var_list = []
-for (i, sim_name) in enumerate(sim_names)
-    # "/groups/esm/ilopezgo/Output."
-    les_dir = string("/Users/haakon/Documents/CliMA/SEDMF/LES_data/Output.", sim_name, sim_suffix[i])
+@assert (  # Each entry in these lists correspond to one simulation case
+    length(les_names) == length(les_suffixes) == length(scm_names) 
+    == length(y_names) == length(t_starts) == length(t_ends)
+)
+for (les_name, les_suffix, scm_name, y_name, tstart, tend) in zip(
+        les_names, les_suffixes, scm_names, y_names, t_starts, t_ends
+    )
     # Get SCM vertical levels for interpolation
-    z_scm = get_profile(string("Output.", scm_sim_names[i], ".00000"), ["z_half"])
+    z_scm = get_profile(joinpath(scm_data_root, "Output.$scm_name.00000"), ["z_half"])
     # Get (interpolated and pool-normalized) observations, get pool variance vector
-    yt_, yt_var_, pool_var = obs_LES(y_names[i], les_dir, ti[i], tf[i], z_scm = z_scm)
+    les_dir = joinpath(les_root, "Output.$les_name.$les_suffix")
+    yt_, yt_var_, pool_var = obs_LES(y_name, les_dir, tstart, tend, z_scm = z_scm)
     if perform_PCA
         yt_pca, yt_var_pca, P_pca = obs_PCA(yt_, yt_var_)
         append!(yt, yt_pca)
@@ -87,23 +94,23 @@ end
 #########
 
 algo = Inversion() # Sampler(vcat(get_mean(priors)...), get_cov(priors))
-N_ens = 20  # number of ensemble members
-println("NUMBER OF ENSEMBLE MEMBERS: ", N_ens)
+N_ens = 2  # number of ensemble members
+println("NUMBER OF ENSEMBLE MEMBERS: $N_ens")
 
 initial_params = construct_initial_ensemble(priors, N_ens, rng_seed=rand(1:1000))
 ekobj = EnsembleKalmanProcess(initial_params, yt, Γy, algo)
-scm_dir = "/Users/haakon/Documents/CliMA/SCAMPy/"  # path to SCAMPy
+scampy_dir = "/Users/haakon/Documents/CliMA/SCAMPy/"  # path to SCAMPy
 
 # Define caller function
 @everywhere g_(x::Array{Float64,1}) = run_SCAMPy(
-        x, $param_names, $scm_dir,
+        x, $param_names, $scampy_dir, $scm_data_root, $scm_names
     )
 
 # Create output dir
 outdir_root = "/Users/haakon/Documents/CliMA/SEDMF/output"
 outdir_path = joinpath(outdir_root, "results_ensemble_p$(n_param)_e$(N_ens)")
 println("Name of outdir path for this EKP is: $outdir_path")
-mkdir(outdir_path)
+mkpath(outdir_path)
 
 # Note that the parameters are transformed when used as input to SCAMPy
 params_cons_i = deepcopy(
@@ -119,18 +126,18 @@ array_of_tuples = pmap(
     on_error=ex->nothing,  # ignore errors
     ) # Outer dim is params iterator
 ##
-(sim_dirs_ens) = ntuple(l->getindex.(array_of_tuples,l),1) # Outer dim is G̃, G 
-sim_dirs_ens_ = filter(x -> !isnothing(x), sim_dirs_ens[1])  # dirty hack for 1-tuples and pmap-error handling
+(sim_dirs_ens,) = ntuple(l->getindex.(array_of_tuples,l),1) # Outer dim is G̃, G 
+sim_dirs_ens_ = filter(x -> !isnothing(x), sim_dirs_ens)  # pmap-error handling
 
 # get a simulation directory `.../Output.SimName.UUID`, and corresponding parameter name
 for (ens_i, sim_dir) in enumerate(sim_dirs_ens_)  # each ensemble returns a list of simulation directories
-    scm_sim_name = scm_sim_names[1]
-    # Copy simulation data to output directory
-    dirname = splitpath(sim_dir)[end]
-    @assert dirname[1:7] == "Output."  # sanity check
-    output_data = string(sim_dir,"/stats/Stats.",scm_sim_name,".nc")
-    new_data_loc = string(outdir_path,"/Stats.",scm_sim_name,".",ens_i,".nc")
-    cmd = `cp $output_data $new_data_loc`
-    run(cmd)
+    for scm_name in scm_names
+        # Copy simulation data to output directory
+        dirname = splitpath(sim_dir)[end]
+        @assert dirname[1:7] == "Output."  # sanity check
+        tmp_data_path = joinpath(sim_dir, "stats/Stats.$scm_name.nc")
+        save_data_path = joinpath(outdir_path, "Stats.$scm_name.$ens_i.nc")
+        run(`cp $tmp_data_path $save_data_path`)
+    end
 end
-i=1; println(string("\n\nEKP evaluation ",i," finished. \n"))
+i=1; println(string("\n\nEKP evaluation $i finished. \n"))

@@ -27,20 +27,20 @@ normalization and projection onto lower dimensional space
 using PCA.
 
 Inputs:
- - u :: Values of parameters to be used in simulations.
- - u_names :: SCAMPy names for parameters u.
- - y_names :: Name of outputs requested for each flow configuration.
- - scampy_dir :: Path to SCAMPy directory
- - scm_data_root :: Path to input data for the SCM model.
- - scm_names :: Names of SCAMPy cases
- - ti :: Vector of starting times for observation intervals. If t_end=nothing,
-         snapshots at t_start are returned.
- - tf :: Vector of ending times for observation intervals.
- - norm_var_list :: Pooled variance vectors. If given, use to normalize output.
- - P_pca_list :: Vector of projection matrices P_pca for each flow configuration.
+ - u                :: Values of parameters to be used in simulations.
+ - u_names          :: SCAMPy names for parameters u.
+ - y_names          :: Name of outputs requested for each flow configuration.
+ - scampy_dir       :: Path to SCAMPy directory
+ - scm_data_root    :: Path to input data for the SCM model.
+ - scm_names        :: Names of SCAMPy cases
+ - ti               :: Vector of starting times for observation intervals. 
+                        If t_end=nothing, snapshots at t_start are returned.
+ - tf               :: Vector of ending times for observation intervals.
+ - norm_var_list    :: Pooled variance vectors. If given, use to normalize output.
+ - P_pca_list       :: Vector of projection matrices P_pca for each flow configuration.
 Outputs:
- - g_scm :: Vector of model evaluations concatenated for all flow configurations.
- - g_scm_pca :: Projection of g_scm onto principal subspace spanned by eigenvectors.
+ - g_scm            :: Vector of model evaluations concatenated for all flow configurations.
+ - g_scm_pca        :: Projection of g_scm onto principal subspace spanned by eigenvectors.
 """
 function run_SCAMPy(
         u::Array{FT, 1},
@@ -139,7 +139,7 @@ Outputs:
  - output_dirs :: list of directories containing output data from the SCAMPy runs.
 """
 function run_SCAMPy_handler(
-        u::Array{FT, 1},  
+        u::Array{FT, 1},
         u_names::Array{String, 1},
         scampy_dir::String,
         scm_names::Array{String, 1},
@@ -153,38 +153,38 @@ function run_SCAMPy_handler(
 
     for simname in scm_names
         # For each scm case, fetch namelist and paramlist
-        inputdir = joinpath(scm_data_root, "Output."*simname*".00000")
-        namelist = JSON.parsefile(joinpath(inputdir, simname*".in"))
-        paramlist = JSON.parsefile(joinpath(inputdir, "paramlist_"*simname*".in"))
+        inputdir = joinpath(scm_data_root, "Output.$simname.00000")
+        namelist = JSON.parsefile(joinpath(inputdir, "$simname.in"))
+        paramlist = JSON.parsefile(joinpath(inputdir, "paramlist_$simname.in"))
 
         # update parameter values
         for (pName, pVal) in zip(u_names, u)
             paramlist["turbulence"]["EDMF_PrognosticTKE"][pName] = pVal
         end
         # write updated paramlist to `tmpdir`
-        paramlist_path = joinpath(tmpdir,paramlist_fname)
+        paramlist_path = joinpath(tmpdir, "paramlist_$simname.in")
         open(paramlist_path, "w") do io
             JSON.print(io, paramlist, 4)
         end
 
         # generate random uuid
         uuid_end = randstring(5)
-        uuid_start = string(namelist["meta"]["uuid"][1:end-5])
-        namelist["meta"]["uuid"] = uuid_start*uuid_end
+        uuid_start = namelist["meta"]["uuid"][1:end-5]
+        namelist["meta"]["uuid"] = "$uuid_start$uuid_end"
         # set output dir to `tmpdir`
         namelist["output"]["output_root"] = tmpdir
         # write updated namelist to `tmpdir`
-        namelist_path = joinpath(tmpdir, namelist_fname)
+        namelist_path = joinpath(tmpdir, "$simname.in")
         open(namelist_path, "w") do io
             JSON.print(io, namelist, 4)
         end
 
         # run SCAMPy with modified parameters
         main_path = joinpath(scampy_dir, "main.py")
-        command = `conda run -n scampy python $main_path $namelist_path $paramlist_path`
+        command = `python $main_path $namelist_path $paramlist_path`
         run(command)
 
-        push!(output_dirs, joinpath(tmpdir,"Output."*simname*"."*uuid_end))
+        push!(output_dirs, joinpath(tmpdir,"Output.$simname.$uuid_end"))
     end  # end `simnames` loop
     return output_dirs
 end

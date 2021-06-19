@@ -19,23 +19,27 @@ run_SCAMPy(
 Run SCAMPy using a set of parameters `u` corresponding to parameter names `u_names`
 
 Inputs:
- - u :: Values of parameters to be used in simulations.
- - u_names :: SCAMPy names for parameters u.
- - scm_dir :: path/to/SCAMPy/
+ - u                :: Values of parameters to be used in simulations.
+ - u_names          :: SCAMPy names for parameters u.
+ - scampy_dir       :: path/to/SCAMPy/
+ - scm_data_root    :: Path to input data for the SCM model.
+ - scm_names        :: Names of SCAMPy cases
 Outputs:
- - sim_dirs :: array of paths pointing to output data 
+ - sim_dirs         :: array of paths pointing to output data 
 """
 function run_SCAMPy(
-            u::Array{FT, 1},
-            u_names::Array{String, 1},
-            scm_dir::String,
-        ) where {FT<:AbstractFloat}
+        u::Array{FT, 1},
+        u_names::Array{String, 1},
+        scampy_dir::String,
+        scm_data_root::String,
+        scm_names::Array{String, 1},
+    ) where {FT<:AbstractFloat}
 
     # Check dimensionality
     @assert length(u_names) == length(u)
 
     # run SCAMPy and get simulation dirs
-    sim_dirs = run_SCAMPy_handler(u,u_names,scm_dir)
+    sim_dirs = run_SCAMPy_handler(u, u_names, scampy_dir, scm_names, scm_data_root)
 
     ## TODO :: Get loss function output
     # ...
@@ -46,33 +50,51 @@ function run_SCAMPy(
 end
 
 
+"""
+    function run_SCAMPy_handler(
+        u::Array{FT, 1},  
+        u_names::Array{String, 1},
+        scampy_dir::String,
+        scm_names::String,
+    ) where {FT<:AbstractFloat}
+
+Run a list of cases using a set of parameters `u_names` with values `u`,
+and return a list of directories pointing to where data is stored for 
+each simulation run.
+
+Inputs:
+ - u :: Values of parameters to be used in simulations.
+ - u_names :: SCAMPy names for parameters u.
+ - scampy_dir :: Path to SCAMPy directory
+ - scm_names :: Names of SCAMPy cases to run
+ - scm_data_root :: Path to SCAMPy cases
+Outputs:
+ - output_dirs :: list of directories containing output data from the SCAMPy runs.
+"""
 function run_SCAMPy_handler(
             u::Array{FT, 1},
             u_names::Array{String, 1},
-            scm_dir::String,
+            scampy_dir::String,
+            scm_names::Array{String, 1},
+            scm_data_root::String,
         ) where {FT<:AbstractFloat}
     # create temporary directory to store SCAMPy data in
-    tmpdir = string(mktempdir(pwd()),"/")
-
-    # simulations to be run
-    simnames = ["StochasticBomex"]
+    tmpdir = mktempdir(pwd())
 
     # output directories
     output_dirs = String[]
 
-    for simname in simnames
-        inputdir = string("Output.",simname,".00000/")
-        namelist_fname = string(simname,".in")
-        paramlist_fname = string("paramlist_",simname,".in")
-        namelist = JSON.parsefile(string(inputdir,namelist_fname))
-        paramlist = JSON.parsefile(string(inputdir,paramlist_fname))
+    for simname in scm_names
+        inputdir = joinpath(scm_data_root, "Output.$simname.00000")
+        namelist = JSON.parsefile(joinpath(inputdir, "$simname.in"))
+        paramlist = JSON.parsefile(joinpath(inputdir, "paramlist_$simname.in"))
         
         # update parameter values
         for (pName, pVal) in zip(u_names, u)
             paramlist["turbulence"]["EDMF_PrognosticTKE"][pName] = pVal
         end
         # write updated paramlist `tmpdir`
-        paramlist_path = string(tmpdir,paramlist_fname)
+        paramlist_path = joinpath(tmpdir, "paramlist_$simname.in")
         open(paramlist_path, "w") do io
             JSON.print(io, paramlist, 4)
         end
@@ -80,22 +102,22 @@ function run_SCAMPy_handler(
         # generate random uuid
         uuid_end = randstring(5)
         uuid_start = namelist["meta"]["uuid"][1:end-5]
-        namelist["meta"]["uuid"] = string(uuid_start,uuid_end)
+        namelist["meta"]["uuid"] = "$uuid_start$uuid_end"
         # set output dir to `tmpdir`
-        namelist["output"]["output_root"] = string(tmpdir)
+        namelist["output"]["output_root"] = tmpdir
         # write updated namelist to `tmpdir`
-        namelist_path = string(tmpdir,namelist_fname)
+        namelist_path = joinpath(tmpdir, "$simname.in")
         open(namelist_path, "w") do io
             JSON.print(io, namelist, 4)
         end
 
         # run SCAMPy with modified parameters
-        main_path = string(scm_dir, "main.py")
+        main_path = joinpath(scampy_dir, "main.py")
         command = `python $main_path $namelist_path $paramlist_path`
         run(command)
 
-        push!(output_dirs, string(tmpdir,"Output.",simname,".",uuid_end))
-    end
+        push!(output_dirs, joinpath(tmpdir,"Output.$simname.$uuid_end"))
+    end # end `simnames` loop
     return output_dirs
 end
 

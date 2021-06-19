@@ -56,7 +56,7 @@ perform_PCA = true # Performs PCA on data
 
 # Define name of PyCLES simulations to learn from
 les_names = ["Bomex"]
-les_suffixes = [".may18"]
+les_suffixes = ["may18"]
 les_root = "/groups/esm/ilopezgo"
 scm_names = ["Bomex"]  # same as `les_names` in perfect model setting
 scm_data_root = pwd()  # path to folder with `Output.<scm_name>.00000` files
@@ -75,12 +75,10 @@ pool_var_list = []
 for (les_name, les_suffix, scm_name, y_name, tstart, tend) in zip(
         les_names, les_suffixes, scm_names, y_names, t_starts, t_ends
     )
-    les_file_name = string("Output.", les_name, les_suffix)
-    les_dir = joinpath(les_root , les_file_name)
     # Get SCM vertical levels for interpolation
-    scm_file_name = string("Output.", scm_name, ".00000")
-    z_scm = get_profile(joinpath(scm_data_root, scm_file_name), ["z_half"])
+    z_scm = get_profile(joinpath(scm_data_root, "Output.$scm_name.00000"), ["z_half"])
     # Get (interpolated and pool-normalized) observations, get pool variance vector
+    les_dir = joinpath(les_root, "Output.$les_name.$les_suffix")
     yt_, yt_var_, pool_var = obs_LES(y_name, les_dir, tstart, tend, z_scm = z_scm)
     push!(pool_var_list, pool_var)
     if perform_PCA
@@ -123,12 +121,12 @@ algo = Inversion() # Sampler(vcat(get_mean(priors)...), get_cov(priors))
 N_ens = 20 # number of ensemble members
 N_iter = 10 # number of EKP iterations.
 Δt = 1.0 # Artificial time stepper of the EKI.
-println("NUMBER OF ENSEMBLE MEMBERS: ", N_ens)
-println("NUMBER OF ITERATIONS: ", N_iter)
+println("NUMBER OF ENSEMBLE MEMBERS: $N_ens")
+println("NUMBER OF ITERATIONS: $N_iter")
 
 initial_params = construct_initial_ensemble(priors, N_ens, rng_seed=rand(1:1000))
 ekobj = EnsembleKalmanProcess(initial_params, yt, Γy, algo )
-scampy_dir = "SCAMPy/"
+scampy_dir = "SCAMPy/"  # path to SCAMPy
 
 # Define caller function
 @everywhere g_(x::Array{Float64,1}) = run_SCAMPy(
@@ -138,17 +136,12 @@ scampy_dir = "SCAMPy/"
 )
 
 # Create output dir
-prefix = "results_"
-prefix = typeof(algo) == Sampler{Float64} ? string(prefix, "eks_") : string(prefix, "eki_")
-prefix = Δt ≈ 1 ? prefix : string(prefix, "dt", Δt, "_")
-outdir_path = string(prefix, "p", n_param,"_e", N_ens, "_i", N_iter, "_d", d)
-println("Name of outdir path for this EKP, ", outdir_path)
-command = `mkdir $outdir_path`
-try
-    run(command)
-catch e
-    println("Output directory already exists. Output may be overwritten.")
-end
+outdir_root = pwd()
+algo_type = typeof(algo) == Sampler{Float64} ? "eks" : "eki"
+dt = Δt ≈ 1 ? "" : "_dt$(Δt)"  # include timestep if different from 1
+outdir_path = joinpath(outdir_root, "results_$(algo)$(dt)_p$(n_param)_e$(N_ens)_i$(N_iter)_d$d")
+println("Name of outdir path for this EKP is: $outdir_path")
+mkpath(outdir_path)
 
 # EKP iterations
 g_ens = zeros(N_ens, d)
@@ -162,7 +155,7 @@ for i in 1:N_iter
     @everywhere params = $params
     array_of_tuples = pmap(g_, params) # Outer dim is params iterator
     (sim_dirs_arr, g_ens_arr, g_ens_arr_pca) = ntuple(l->getindex.(array_of_tuples,l),3) # Outer dim is G̃, G 
-    println(string("\n\nEKP evaluation ",i," finished. Updating ensemble ...\n"))
+    println(string("\n\nEKP evaluation $i finished. Updating ensemble ...\n"))
     for j in 1:N_ens
       g_ens[j, :] = g_ens_arr_pca[j]
     end
@@ -225,20 +218,18 @@ for i in 1:N_iter
     end
 
     # Save full EDMF data from every ensemble
-    eki_iter_path = string("EKI_iter_",i)
-    run(`mkdir $eki_iter_path`)
+    eki_iter_path = joinpath(outdir_path, "EKI_iter_$i")
+    mkpath(eki_iter_path)
     # get a simulation directory `.../Output.SimName.UUID`, and corresponding parameter name
     for (ens_i, sim_dir) in enumerate(sim_dirs_arr)  # each ensemble returns a list of simulation directories
         for scm_name in scm_names
         # Copy simulation data to output directory
         dirname = splitpath(sim_dir)[end]
         @assert dirname[1:7] == "Output."  # sanity check
-        output_data = string(sim_dir,"/stats/Stats.",scm_sim_name,".nc")
-        new_data_loc = joinpath(eki_iter_path, outdir_path, string("Stats.",scm_sim_name,".",ens_i,".nc"))
-        cmd = `cp $output_data $new_data_loc`
-        run(cmd)
+        tmp_data_path = joinpath(sim_dir, "stats/Stats.$scm_name.nc")
+        save_data_path = joinpath(eki_iter_path, "Stats.$scm_name.$ens_i.nc")
+        run(`cp $tmp_data_path $save_data_path`)
     end
-
 end
 
 # EKP results: Has the ensemble collapsed toward the truth?
