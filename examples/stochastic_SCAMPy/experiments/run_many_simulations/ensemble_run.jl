@@ -20,14 +20,18 @@ using NPZ
 param_names = ["stochastic_noise"]
 n_param = length(param_names)
 
-# Prior information: Define transform to unconstrained gaussian space
-constraints = [
-    [bounded(0.5, 2.0)],
-    ]
-# All vars are standard Gaussians in unconstrained space
-prior_dist = [Parameterized(Normal(0.0, 1.0))
-                for x in range(1, n_param, length=n_param) ]
-priors = ParameterDistribution(prior_dist, constraints, param_names)
+# # Prior information: Define transform to unconstrained gaussian space
+# constraints = [
+#     [bounded(0.5, 2.0)],
+#     ]
+# # All vars are standard Gaussians in unconstrained space
+# prior_dist = [Parameterized(Normal(0.0, 1.0))
+#                 for x in range(1, n_param, length=n_param) ]
+# priors = ParameterDistribution(prior_dist, constraints, param_names)
+
+## Set known parameter
+known_value = [Samples([0.0])]
+priors = ParameterDistribution(known_value, [no_constraint()], param_names)
 
 # Define observation window (s)
 ti = [4.0] * 3600  # 4hrs
