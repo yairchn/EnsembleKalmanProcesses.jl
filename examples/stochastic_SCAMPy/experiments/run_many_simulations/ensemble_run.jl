@@ -96,14 +96,10 @@ scm_dir = "/Users/haakon/Documents/CliMA/SCAMPy/"  # path to SCAMPy
     )
 
 # Create output dir
-outdir_path = string("results_ensemble", "_p", n_param,"_e", N_ens, "_i", d)
-println("Name of outdir path for this EKP, ", outdir_path)
-command = `mkdir $outdir_path`
-try
-    run(command)
-catch e
-    println("Output directory already exists. Output may be overwritten.")
-end
+outdir_root = "/Users/haakon/Documents/CliMA/SEDMF/output"
+outdir_path = joinpath(outdir_root, "results_ensemble_p$(n_param)_e$(N_ens)")
+println("Name of outdir path for this EKP is: $outdir_path")
+mkdir(outdir_path)
 
 # Note that the parameters are transformed when used as input to SCAMPy
 params_cons_i = deepcopy(
