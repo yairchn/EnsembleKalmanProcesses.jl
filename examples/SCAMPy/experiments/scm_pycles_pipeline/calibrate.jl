@@ -178,7 +178,7 @@ for i in 1:N_iter
     end
 
     # Save EKP information to JLD2 file
-    save(string(outdir_path,"/ekp.jld2"),
+    save(joinpath(outdir_path, "ekp.jld2"),
         "ekp_u", transform_unconstrained_to_constrained(priors, get_u(ekobj)),
         "ekp_g", get_g(ekobj),
         "truth_mean", ekobj.obs_mean,
@@ -204,17 +204,17 @@ for i in 1:N_iter
     end
     norm_err_arr = hcat(norm_err_list...)' # N_iter, N_ens
     # Or you can also save information to numpy files with NPZ
-    npzwrite(string(outdir_path,"/y_mean.npy"), ekobj.obs_mean)
-    npzwrite(string(outdir_path,"/Gamma_y.npy"), ekobj.obs_noise_cov)
-    npzwrite(string(outdir_path,"/ekp_err.npy"), ekobj.err)
-    npzwrite(string(outdir_path,"/phi_params.npy"), phi_params_arr)
-    npzwrite(string(outdir_path,"/y_mean_big.npy"), yt_big)
-    npzwrite(string(outdir_path,"/Gamma_y_big.npy"), yt_var_big)
-    npzwrite(string(outdir_path,"/norm_err.npy"), norm_err_arr)
-    npzwrite(string(outdir_path,"/g_big.npy"), g_big_arr)
+    npzwrite(joinpath(outdir_path,"y_mean.npy"), ekobj.obs_mean)
+    npzwrite(joinpath(outdir_path,"Gamma_y.npy"), ekobj.obs_noise_cov)
+    npzwrite(joinpath(outdir_path,"ekp_err.npy"), ekobj.err)
+    npzwrite(joinpath(outdir_path,"phi_params.npy"), phi_params_arr)
+    npzwrite(joinpath(outdir_path,"y_mean_big.npy"), yt_big)
+    npzwrite(joinpath(outdir_path,"Gamma_y_big.npy"), yt_var_big)
+    npzwrite(joinpath(outdir_path,"norm_err.npy"), norm_err_arr)
+    npzwrite(joinpath(outdir_path,"g_big.npy"), g_big_arr)
     for (l, P_pca) in enumerate(P_pca_list)
-      npzwrite(string(outdir_path,"/P_pca_",scm_names[l],".npy"), P_pca)
-      npzwrite(string(outdir_path,"/pool_var_",scm_names[l],".npy"), pool_var_list[l])
+	npzwrite(joinpath(outdir_path,"P_pca_$(scm_names[l]).npy"), P_pca)
+	npzwrite(joinpath(outdir_path,"pool_var_$(scm_names[l]).npy"), pool_var_list[l])
     end
 
     # Save full EDMF data from every ensemble
