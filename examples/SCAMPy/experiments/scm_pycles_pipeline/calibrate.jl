@@ -139,7 +139,7 @@ scampy_dir = "SCAMPy/"  # path to SCAMPy
 outdir_root = pwd()
 algo_type = typeof(algo) == Sampler{Float64} ? "eks" : "eki"
 dt = Δt ≈ 1 ? "" : "_dt$(Δt)"  # include timestep if different from 1
-outdir_path = joinpath(outdir_root, "results_$(algo)$(dt)_p$(n_param)_e$(N_ens)_i$(N_iter)_d$d")
+outdir_path = joinpath(outdir_root, "results_$(algo_type)$(dt)_p$(n_param)_e$(N_ens)_i$(N_iter)_d$d")
 println("Name of outdir path for this EKP is: $outdir_path")
 mkpath(outdir_path)
 
