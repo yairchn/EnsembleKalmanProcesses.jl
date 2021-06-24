@@ -39,6 +39,7 @@ Inputs:
  - norm_var_list    :: Pooled variance vectors. If given, use to normalize output.
  - P_pca_list       :: Vector of projection matrices P_pca for each flow configuration.
 Outputs:
+ - sim_dirs         :: Vector of simulation output directories
  - g_scm            :: Vector of model evaluations concatenated for all flow configurations.
  - g_scm_pca        :: Projection of g_scm onto principal subspace spanned by eigenvectors.
 """
@@ -123,6 +124,7 @@ end
         u_names::Array{String, 1},
         scampy_dir::String,
         scm_names::String,
+        scm_data_root::String,
     ) where {FT<:AbstractFloat}
 
 Run a list of cases using a set of parameters `u_names` with values `u`,
@@ -134,7 +136,7 @@ Inputs:
  - u_names :: SCAMPy names for parameters u.
  - scampy_dir :: Path to SCAMPy directory
  - scm_names :: Names of SCAMPy cases to run
- - scm_data_root :: Path to SCAMPy cases
+ - scm_data_root :: Path to SCAMPy case data (<scm_data_root>/Output.<scm_name>.00000)
 Outputs:
  - output_dirs :: list of directories containing output data from the SCAMPy runs.
 """
@@ -181,10 +183,9 @@ function run_SCAMPy_handler(
 
         # run SCAMPy with modified parameters
         main_path = joinpath(scampy_dir, "main.py")
-        command = `python $main_path $namelist_path $paramlist_path`
-        run(command)
+        run(`python $main_path $namelist_path $paramlist_path`)
 
-        push!(output_dirs, joinpath(tmpdir,"Output.$simname.$uuid_end"))
+        push!(output_dirs, joinpath(tmpdir, "Output.$simname.$uuid_end"))
     end  # end `simnames` loop
     return output_dirs
 end
