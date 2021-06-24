@@ -223,15 +223,15 @@ for i in 1:N_iter
     # get a simulation directory `.../Output.SimName.UUID`, and corresponding parameter name
     for (ens_i, sim_dir) in enumerate(sim_dirs_arr)  # each ensemble returns a list of simulation directories
         for scm_name in scm_names
-        # Copy simulation data to output directory
-        dirname = splitpath(sim_dir)[end]
-        @assert dirname[1:7] == "Output."  # sanity check
-        tmp_data_path = joinpath(sim_dir, "stats/Stats.$scm_name.nc")
-        save_data_path = joinpath(eki_iter_path, "Stats.$scm_name.$ens_i.nc")
-        run(`cp $tmp_data_path $save_data_path`)
+  	    # Copy simulation data to output directory
+       	    dirname = splitpath(sim_dir)[end]
+            @assert dirname[1:7] == "Output."  # sanity check
+            tmp_data_path = joinpath(sim_dir, "stats/Stats.$scm_name.nc")
+            save_data_path = joinpath(eki_iter_path, "Stats.$scm_name.$ens_i.nc")
+            run(`cp $tmp_data_path $save_data_path`)
+        end
     end
 end
-
 # EKP results: Has the ensemble collapsed toward the truth?
 println("\nEKP ensemble mean at last stage (original space):")
 println( mean( transform_unconstrained_to_constrained(priors, get_u_final(ekobj)), dims=2) ) # Parameters are stored as columns
