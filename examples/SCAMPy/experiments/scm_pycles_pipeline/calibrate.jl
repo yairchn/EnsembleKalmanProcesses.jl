@@ -118,15 +118,15 @@ samples[1,:] = yt
 #########
 
 algo = Inversion() # Sampler(vcat(get_mean(priors)...), get_cov(priors))
-N_ens = 20 # number of ensemble members
-N_iter = 10 # number of EKP iterations.
+N_ens = 4 # number of ensemble members
+N_iter = 2 # number of EKP iterations.
 Δt = 1.0 # Artificial time stepper of the EKI.
 println("NUMBER OF ENSEMBLE MEMBERS: $N_ens")
 println("NUMBER OF ITERATIONS: $N_iter")
 
 initial_params = construct_initial_ensemble(priors, N_ens, rng_seed=rand(1:1000))
 ekobj = EnsembleKalmanProcess(initial_params, yt, Γy, algo )
-scampy_dir = "SCAMPy/"  # path to SCAMPy
+scampy_dir = "/groups/esm/hervik/calibration/SCAMPy"  # path to SCAMPy
 
 # Define caller function
 @everywhere g_(x::Array{Float64,1}) = run_SCAMPy(
@@ -224,9 +224,9 @@ for i in 1:N_iter
     for (ens_i, sim_dir) in enumerate(sim_dirs_arr)  # each ensemble returns a list of simulation directories
         for scm_name in scm_names
   	    # Copy simulation data to output directory
-       	    dirname = splitpath(sim_dir)[end]
+	    dirname = splitpath(sim_dir[1])[end]
             @assert dirname[1:7] == "Output."  # sanity check
-            tmp_data_path = joinpath(sim_dir, "stats/Stats.$scm_name.nc")
+	    tmp_data_path = joinpath(sim_dir[1], "stats/Stats.$scm_name.nc")
             save_data_path = joinpath(eki_iter_path, "Stats.$scm_name.$ens_i.nc")
             run(`cp $tmp_data_path $save_data_path`)
         end
