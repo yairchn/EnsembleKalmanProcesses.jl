@@ -513,15 +513,17 @@ the same prior.
 """
 function precondition_ensemble!(params::Array{FT, 2}, priors,
     param_names::Vector{String}, y_names::Union{Array{String, 1}, Array{Array{String,1},1}},
+    scampy_dir::String, scm_data_root::String, scm_names::Array{String, 1},
     ti::Union{FT, Array{FT,1}};
     tf::Union{FT, Array{FT,1}, Nothing}=nothing, lim::FT=1.0e4,) where {IT<:Int, FT}
 
     # Check dimensionality
     @assert length(param_names) == size(params, 1)
     # Wrapper around SCAMPy in original output coordinates
-    g_(x::Array{Float64,1}) = run_SCAMPy(x, param_names, y_names, scm_dir, ti, tf)
+    g_(x::Array{Float64,1}) = run_SCAMPy(
+        x, param_names, y_names, scampy_dir, scm_data_root, scm_names, ti, tf,
+    )
 
-    scm_dir = "/home/ilopezgo/SCAMPy/"
     params_cons_i = deepcopy(transform_unconstrained_to_constrained(priors, params))    
     params_cons_i = [row[:] for row in eachrow(params_cons_i')]
     N_ens = size(params_cons_i, 1)
@@ -535,13 +537,13 @@ function precondition_ensemble!(params::Array{FT, 2}, priors,
     # Recursively eliminate all unstable parameters
     if !isempty(unstable_point_inds)
         println(length(unstable_point_inds), " unstable parameters found:" )
-        for j in length(unstable_point_inds)
+        for j in 1:length(unstable_point_inds)
             println(params[:, unstable_point_inds[j]])
         end
         println("Sampling new parameters from prior...")
         new_params = construct_initial_ensemble(priors, length(unstable_point_inds))
         precondition_ensemble!(new_params, priors, param_names,
-            y_names, ti, tf=tf, lim=lim)
+            y_names, scampy_dir, scm_data_root, scm_names, ti, tf=tf, lim=lim)
         params[:, unstable_point_inds] = new_params
     end
     println("\nPreconditioning finished.")
