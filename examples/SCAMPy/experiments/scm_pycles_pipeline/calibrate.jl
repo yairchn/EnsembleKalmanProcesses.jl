@@ -105,20 +105,13 @@ end
 d = length(yt) # Length of data array
 
 # Construct global observational covariance matrix, TSVD
-yt_var = zeros(d, d)
-vars_num = 1
-for config_cov in yt_var_list
-    vars = length(config_cov[1,:])
-    yt_var[vars_num:vars_num+vars-1, vars_num:vars_num+vars-1] = config_cov
-    global vars_num = vars_num+vars
-end
+Γy = Matrix(BlockDiagonal(yt_var_list))
 
 yt_var_big = cov_from_cov_list(yt_var_list_big)
 
 n_samples = 1
 samples = zeros(n_samples, length(yt))
 samples[1,:] = yt
-Γy = yt_var
 
 #########
 #########  Calibrate: Ensemble Kalman Inversion
