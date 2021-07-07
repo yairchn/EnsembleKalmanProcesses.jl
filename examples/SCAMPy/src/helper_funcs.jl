@@ -16,7 +16,7 @@ using EnsembleKalmanProcesses.ParameterDistributionStorage
         y_names::Union{Array{String, 1}, Array{Array{String,1},1}},
         scampy_dir::String,
         scm_data_root::String,
-        scm_names::String,
+        scm_names::Array{String, 1},
         ti::Union{Array{FT,1}, Array{Array{FT,1},1}},
         tf::Union{Array{FT,1}, Array{Array{FT,1},1}, Nothing} = nothing;
         norm_var_list = nothing,
@@ -30,20 +30,20 @@ using PCA.
 
 Inputs:
  - u                :: Values of parameters to be used in simulations.
- - u_names          :: SCAMPy names for parameters u.
+ - u_names          :: SCAMPy names for parameters `u`.
  - y_names          :: Name of outputs requested for each flow configuration.
  - scampy_dir       :: Path to SCAMPy directory
  - scm_data_root    :: Path to input data for the SCM model.
  - scm_names        :: Names of SCAMPy cases
  - ti               :: Vector of starting times for observation intervals. 
-                        If t_end=nothing, snapshots at t_start are returned.
+                        If `tf=nothing`, snapshots at `ti` are returned.
  - tf               :: Vector of ending times for observation intervals.
  - norm_var_list    :: Pooled variance vectors. If given, use to normalize output.
- - P_pca_list       :: Vector of projection matrices P_pca for each flow configuration.
+ - P_pca_list       :: Vector of projection matrices `P_pca` for each flow configuration.
 Outputs:
  - sim_dirs         :: Vector of simulation output directories
  - g_scm            :: Vector of model evaluations concatenated for all flow configurations.
- - g_scm_pca        :: Projection of g_scm onto principal subspace spanned by eigenvectors.
+ - g_scm_pca        :: Projection of `g_scm` onto principal subspace spanned by eigenvectors.
 """
 function run_SCAMPy(
         u::Array{FT, 1},
@@ -135,7 +135,7 @@ each simulation run.
 
 Inputs:
  - u :: Values of parameters to be used in simulations.
- - u_names :: SCAMPy names for parameters u.
+ - u_names :: SCAMPy names for parameters `u`.
  - scampy_dir :: Path to SCAMPy directory
  - scm_names :: Names of SCAMPy cases to run
  - scm_data_root :: Path to SCAMPy case data (<scm_data_root>/Output.<scm_name>.00000)

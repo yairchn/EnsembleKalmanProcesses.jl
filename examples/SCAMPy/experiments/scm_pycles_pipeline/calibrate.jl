@@ -39,10 +39,8 @@ prior_dist = [Parameterized(Normal(0.0, 1.0))
 priors = ParameterDistribution(prior_dist, constraints, param_names)
 
 #########
-#########  Retrieve true LES samples from PyCLES data and transform
+#########  Define simulation parameters and data directories
 #########
-
-# Path to LES
 
 # Define observation window (s)
 t_starts = [4.0] * 3600  # 4hrs
@@ -54,12 +52,21 @@ push!(y_names, ["thetal_mean", "ql_mean", "qt_mean", "total_flux_h", "total_flux
 # Define preconditioning and regularization of inverse problem
 perform_PCA = true # Performs PCA on data
 
-# Define name of PyCLES simulations to learn from
+# Define directories to fetch data from and store results to
 les_names = ["Bomex"]
 les_suffixes = ["may18"]
 les_root = "/groups/esm/ilopezgo"
 scm_names = ["Bomex"]  # same as `les_names` in perfect model setting
 scm_data_root = pwd()  # path to folder with `Output.<scm_name>.00000` files
+scampy_dir = joinpath(pwd(), "SCAMPy")  # path to SCAMPy
+save_full_EDMF_data = false  # if true, save each ensemble output file
+outdir_root = pwd()
+
+@assert isdir(les_root) & isdir(scm_data_root) & isdir(scampy_dir) 
+
+#########
+#########  Retrieve true LES samples from PyCLES data and transform
+#########
 
 # Init arrays
 yt = zeros(0)
@@ -126,7 +133,6 @@ println("NUMBER OF ITERATIONS: $N_iter")
 
 initial_params = construct_initial_ensemble(priors, N_ens, rng_seed=rand(1:1000))
 ekobj = EnsembleKalmanProcess(initial_params, yt, Γy, algo )
-scampy_dir = "/groups/esm/hervik/calibration/SCAMPy"  # path to SCAMPy
 
 # Define caller function
 @everywhere g_(x::Array{Float64,1}) = run_SCAMPy(
@@ -136,7 +142,6 @@ scampy_dir = "/groups/esm/hervik/calibration/SCAMPy"  # path to SCAMPy
 )
 
 # Create output dir
-outdir_root = pwd()
 algo_type = typeof(algo) == Sampler{Float64} ? "eks" : "eki"
 outdir_path = joinpath(outdir_root, "results_$(algo_type)_dt$(Δt)_p$(n_param)_e$(N_ens)_i$(N_iter)_d$d")
 println("Name of outdir path for this EKP is: $outdir_path")
@@ -156,7 +161,7 @@ for i in 1:N_iter
     (sim_dirs_arr, g_ens_arr, g_ens_arr_pca) = ntuple(l->getindex.(array_of_tuples,l),3) # Outer dim is G̃, G 
     println(string("\n\nEKP evaluation $i finished. Updating ensemble ...\n"))
     for j in 1:N_ens
-      g_ens[j, :] = g_ens_arr_pca[j]
+        g_ens[j, :] = g_ens_arr_pca[j]
     end
     # Get normalized error for full dimensionality output
     push!(norm_err_list, compute_errors(g_ens_arr, yt_big))
@@ -173,7 +178,7 @@ for i in 1:N_iter
     phi_params = Array{Array{Float64,2},1}(transform_unconstrained_to_constrained(priors, get_u(ekobj)))
     phi_params_arr = zeros(i+1, n_param, N_ens)
     for (k,elem) in enumerate(phi_params)
-      phi_params_arr[k,:,:] = elem
+        phi_params_arr[k,:,:] = elem
     end
 
     # Save EKP information to JLD2 file
@@ -190,16 +195,16 @@ for i in 1:N_iter
         "P_pca", P_pca_list,
         "pool_var", pool_var_list,
         "phi_params", phi_params_arr,
-        )
+    )
     # Convert to arrays
     phi_params = Array{Array{Float64,2},1}(transform_unconstrained_to_constrained(priors, get_u(ekobj)))
     phi_params_arr = zeros(i+1, n_param, N_ens)
     g_big_arr = zeros(i, N_ens, length(yt_big))
     for (k,elem) in enumerate(phi_params)
-      phi_params_arr[k,:,:] = elem
-      if k < i + 1
-        g_big_arr[k,:,:] = hcat(g_big_list[k]...)'
-      end
+        phi_params_arr[k,:,:] = elem
+        if k < i + 1
+            g_big_arr[k,:,:] = hcat(g_big_list[k]...)'
+        end
     end
     norm_err_arr = hcat(norm_err_list...)' # N_iter, N_ens
     # Or you can also save information to numpy files with NPZ
@@ -212,22 +217,34 @@ for i in 1:N_iter
     npzwrite(joinpath(outdir_path,"norm_err.npy"), norm_err_arr)
     npzwrite(joinpath(outdir_path,"g_big.npy"), g_big_arr)
     for (l, P_pca) in enumerate(P_pca_list)
-	npzwrite(joinpath(outdir_path,"P_pca_$(scm_names[l]).npy"), P_pca)
-	npzwrite(joinpath(outdir_path,"pool_var_$(scm_names[l]).npy"), pool_var_list[l])
+        npzwrite(joinpath(outdir_path,"P_pca_$(scm_names[l]).npy"), P_pca)
+        npzwrite(joinpath(outdir_path,"pool_var_$(scm_names[l]).npy"), pool_var_list[l])
     end
 
-    # Save full EDMF data from every ensemble
-    eki_iter_path = joinpath(outdir_path, "EKI_iter_$i")
-    mkpath(eki_iter_path)
-    # get a simulation directory `.../Output.SimName.UUID`, and corresponding parameter name
-    for (ens_i, sim_dir) in enumerate(sim_dirs_arr)  # each ensemble returns a list of simulation directories
-        for scm_name in scm_names
-  	    # Copy simulation data to output directory
-	    dirname = splitpath(sim_dir[1])[end]
-            @assert dirname[1:7] == "Output."  # sanity check
-	    tmp_data_path = joinpath(sim_dir[1], "stats/Stats.$scm_name.nc")
-            save_data_path = joinpath(eki_iter_path, "Stats.$scm_name.$ens_i.nc")
-            run(`cp $tmp_data_path $save_data_path`)
+    if save_full_EDMF_data
+        # Save full EDMF data from every ensemble
+        eki_iter_path = joinpath(outdir_path, "EKI_iter_$i")
+        mkpath(eki_iter_path)
+        # get a simulation directory `.../Output.SimName.UUID`, and corresponding parameter name
+        for (ens_i, sim_dirs) in enumerate(sim_dirs_arr)  # each ensemble returns a list of simulation directories
+            ens_i_path = joinpath(eki_iter_path, "ens_$ens_i")
+            mkpath(ens_i_path)
+            for (scm_name, sim_dir) in zip(scm_names, sim_dirs)
+                # Copy simulation data to output directory
+                dirname = splitpath(sim_dir)[end]
+                @assert dirname[1:7] == "Output."  # sanity check
+                # Stats file
+                tmp_data_path = joinpath(sim_dir, "stats/Stats.$scm_name.nc")
+                save_data_path = joinpath(ens_i_path, "Stats.$scm_name.$ens_i.nc")
+                run(`cp $tmp_data_path $save_data_path`)
+                # namefile and paramfile
+                tmp_namefile_path = joinpath(sim_dir, "$scm_name.in")
+                save_namefile_path = joinpath(ens_i_path, "$scm_name.in")
+                run(`cp $tmp_namefile_path $save_namefile_path`)
+                tmp_paramfile_path = joinpath(sim_dir, "paramlist_$scm_name.in")
+                save_paramfile_path = joinpath(ens_i_path, "paramlist_$scm_name.in")
+                run(`cp $tmp_paramfile_path $save_paramfile_path`)
+            end
         end
     end
 end
