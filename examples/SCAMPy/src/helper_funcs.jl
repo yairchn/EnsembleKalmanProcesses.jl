@@ -395,10 +395,9 @@ function get_time_covariance(sim_dir::String,
                      normalize=false)
 
     t = nc_fetch(sim_dir, "timeseries", "t")
-    dt = t[2]-t[1]
     # Find closest interval in data
-    ti_diff, ti_index = findmin( broadcast(abs, t.-ti) )
-    tf_diff, tf_index = findmin( broadcast(abs, t.-tf) )
+    ti_index = argmin( broadcast(abs, t.-ti) )
+    tf_index = argmin( broadcast(abs, t.-tf) )
     ts_vec = zeros(0, length(ti_index:tf_index))
     num_outputs = length(var_name)
     poolvar_vec = zeros(num_outputs)
@@ -411,20 +410,23 @@ function get_time_covariance(sim_dir::String,
             var_ = var_.*rho_half
         end
         # Store pooled variance
-        poolvar_vec[i] = mean(var(var_[:, ti_index:tf_index], dims=2))
+        poolvar_vec[i] = mean(var(var_[:, ti_index:tf_index], dims=2))  # vertically averaged time-variance of variable
         ts_var_i = normalize ? var_[:, ti_index:tf_index]./ sqrt(poolvar_vec[i]) : var_[:, ti_index:tf_index]
         # Interpolate in space
         if !isnothing(z_scm)
             z_les = getFullHeights ? get_profile(sim_dir, ["z"]) : get_profile(sim_dir, ["z_half"])
             # Create interpolant
-            ts_var_i_itp = interpolate( (z_les, 1:tf_index-ti_index+1),
-                                        ts_var_i, ( Gridded(Linear()), NoInterp() ))
+            ts_var_i_itp = interpolate(
+                (z_les, 1:tf_index-ti_index+1),
+                ts_var_i,
+                ( Gridded(Linear()), NoInterp() )
+            )
             # Interpolate
             ts_var_i = ts_var_i_itp(z_scm, 1:tf_index-ti_index+1)
         end
-        ts_vec = cat(ts_vec, ts_var_i, dims=1)
+        ts_vec = cat(ts_vec, ts_var_i, dims=1)  # dims: (Nz*num_outputs, Nt)
     end
-    cov_mat = cov(ts_vec, dims=2)
+    cov_mat = cov(ts_vec, dims=2)  # covariance, w/ samples across time dimension (t_inds).
     return cov_mat, poolvar_vec
 end
 
